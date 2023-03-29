@@ -390,7 +390,7 @@ namespace SharpHoundCommonLib
 
                 try
                 {
-                    semaphoreLocked = _searchQuerySemaphore.WaitOne(10000);
+                    semaphoreLocked = _searchQuerySemaphore.WaitOne(SemaphoreTimeout);
                 }
                 catch (Exception e)
                 {

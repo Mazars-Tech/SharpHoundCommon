@@ -47,7 +47,7 @@ namespace SharpHoundCommonLib.Processors
         /// <param name="result"></param>
         /// <param name="entry"></param>
         /// <returns></returns>
-        public Task<ComputerStatus> IsComputerAvailable(ResolvedSearchResult result, ISearchResultEntry entry)
+        public Task<ComputerStatus> IsComputerAvailable(ISearchResultEntry entry, ResolvedSearchResult result)
         {
             var name = result.DisplayName;
             var os = entry.GetProperty(LDAPProperties.OperatingSystem);

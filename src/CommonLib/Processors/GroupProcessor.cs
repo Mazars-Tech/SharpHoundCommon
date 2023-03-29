@@ -85,6 +85,13 @@ namespace SharpHoundCommonLib.Processors
             }
         }
 
+        public static string GetPrimaryGroupInfo(ISearchResultEntry searchResultEntry,
+            ResolvedSearchResult resolvedSearchResult)
+        {
+            var pgi = searchResultEntry.GetProperty(LDAPProperties.PrimaryGroupID);
+            return GetPrimaryGroupInfo(pgi, resolvedSearchResult.ObjectId);
+        }
+
         /// <summary>
         ///     Reads the primary group info from a user or computer object and massages it into the proper format.
         /// </summary>

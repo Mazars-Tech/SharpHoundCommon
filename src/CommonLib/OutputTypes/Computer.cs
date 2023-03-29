@@ -1,4 +1,5 @@
 ﻿using System;
+using SharpHoundCommonLib.Processors;
 
 namespace SharpHoundCommonLib.OutputTypes
 {
@@ -17,7 +18,16 @@ namespace SharpHoundCommonLib.OutputTypes
         public LocalGroupAPIResult[] LocalGroups { get; set; } = Array.Empty<LocalGroupAPIResult>();
         public UserRightsAssignmentAPIResult[] UserRights { get; set; } = Array.Empty<UserRightsAssignmentAPIResult>();
         public ComputerStatus Status { get; set; }
+
+        public void ConsumeComputerProps(ComputerProperties properties)
+        {
+            Properties.Merge(properties.Props);
+            AllowedToDelegate = properties.AllowedToDelegate;
+            AllowedToAct = properties.AllowedToAct;
+            HasSIDHistory = properties.SidHistory;
+        }
     }
+    
 
     public class ComputerStatus
     {

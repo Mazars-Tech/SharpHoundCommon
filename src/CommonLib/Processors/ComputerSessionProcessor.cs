@@ -31,6 +31,16 @@ namespace SharpHoundCommonLib.Processors
 
         public event ComputerStatusDelegate ComputerStatusEvent;
 
+        public Task<SessionAPIResult> ReadUserSessions(ISearchResultEntry searchResultEntry,
+            ResolvedSearchResult resolvedSearchResult)
+        {
+            var computerName = resolvedSearchResult.DisplayName;
+            var computerSid = resolvedSearchResult.ObjectId;
+            var computerDomain = resolvedSearchResult.Domain;
+
+            return ReadUserSessions(computerName, computerSid, computerDomain);
+        }
+        
         /// <summary>
         ///     Uses the NetSessionEnum Win32 API call to get network sessions from a remote computer.
         ///     These are usually from SMB share accesses or other network sessions of the sort
@@ -136,6 +146,15 @@ namespace SharpHoundCommonLib.Processors
             return ret;
         }
 
+        public SessionAPIResult ReadUserSessionsPrivileged(ISearchResultEntry searchResultEntry,
+            ResolvedSearchResult resolvedSearchResult)
+        {
+            var samAccountName = searchResultEntry.GetProperty(LDAPProperties.SAMAccountName)?.TrimEnd('$');
+            return ReadUserSessionsPrivileged(
+                resolvedSearchResult.DisplayName, samAccountName,
+                resolvedSearchResult.ObjectId);
+        }
+
         /// <summary>
         ///     Uses the privileged win32 API, NetWkstaUserEnum, to return the logged on users on a remote computer.
         ///     Requires administrator rights on the target system
@@ -226,6 +245,13 @@ namespace SharpHoundCommonLib.Processors
             }).ToArray();
 
             return ret;
+        }
+
+        public async Task<SessionAPIResult> ReadUserSessionsRegistry(ISearchResultEntry searchResultEntry,
+            ResolvedSearchResult resolvedSearchResult)
+        {
+            return ReadUserSessionsPrivileged(resolvedSearchResult.DisplayName, resolvedSearchResult.Domain,
+                resolvedSearchResult.ObjectId);
         }
 
         public async Task<SessionAPIResult> ReadUserSessionsRegistry(string computerName, string computerDomain,

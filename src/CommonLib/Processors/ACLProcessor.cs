@@ -109,16 +109,16 @@ namespace SharpHoundCommonLib.Processors
         /// <summary>
         ///     Helper function to use common lib types and pass appropriate vars to ProcessACL
         /// </summary>
-        /// <param name="result"></param>
+        /// <param name="resolvedSearchResult"></param>
         /// <param name="searchResult"></param>
         /// <returns></returns>
-        public IEnumerable<ACE> ProcessACL(ResolvedSearchResult result, ISearchResultEntry searchResult)
+        public IEnumerable<ACE> ProcessACL(ISearchResultEntry searchResult, ResolvedSearchResult resolvedSearchResult)
         {
             var descriptor = searchResult.GetByteProperty(LDAPProperties.SecurityDescriptor);
-            var domain = result.Domain;
-            var type = result.ObjectType;
+            var domain = resolvedSearchResult.Domain;
+            var type = resolvedSearchResult.ObjectType;
             var hasLaps = searchResult.HasLAPS();
-            var name = result.DisplayName;
+            var name = resolvedSearchResult.DisplayName;
 
             return ProcessACL(descriptor, domain, type, hasLaps, name);
         }
