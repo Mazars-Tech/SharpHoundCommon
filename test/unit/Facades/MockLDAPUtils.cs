@@ -753,6 +753,11 @@ namespace CommonLibTest.Facades
             throw new NotImplementedException();
         }
 
+        public IEnumerable<SearchResultEntry> DoASQRetrieval(string distinguishedName, string attributeName, string[] requestAttributes)
+        {
+            throw new NotImplementedException();
+        }
+
 #pragma warning disable CS1998
         public async Task<string> ResolveHostToSid(string hostname, string domain)
         {
@@ -1050,6 +1055,11 @@ namespace CommonLibTest.Facades
         {
             var mockSecurityDescriptor = new Mock<ActiveDirectorySecurityDescriptor>();
             return mockSecurityDescriptor.Object;
+        }
+
+        public int GetLdapPageSize(string domainName = null)
+        {
+            return 750;
         }
 
         private Group GetBaseEnterpriseDC()

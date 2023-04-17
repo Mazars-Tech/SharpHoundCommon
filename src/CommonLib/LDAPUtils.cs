@@ -18,9 +18,7 @@ using SharpHoundCommonLib.Exceptions;
 using SharpHoundCommonLib.LDAPQueries;
 using SharpHoundCommonLib.OutputTypes;
 using SharpHoundCommonLib.Processors;
-using SharpHoundRPC;
 using SharpHoundRPC.NetAPINative;
-using SharpHoundRPC.Wrappers;
 using Domain = System.DirectoryServices.ActiveDirectory.Domain;
 using SearchScope = System.DirectoryServices.Protocols.SearchScope;
 using SecurityMasks = System.DirectoryServices.Protocols.SecurityMasks;
@@ -56,6 +54,7 @@ namespace SharpHoundCommonLib
         private readonly ConcurrentDictionary<string, LdapConnection> _globalCatalogConnections = new();
         private readonly ConcurrentDictionary<string, string> _hostResolutionMap = new();
         private readonly ConcurrentDictionary<string, LdapConnection> _ldapConnections = new();
+        private readonly ConcurrentDictionary<string, int> _ldapPageSizeCache = new();
         private readonly ILogger _log;
         private readonly NativeMethods _nativeMethods;
         private readonly ConcurrentDictionary<string, string> _netbiosCache = new();
@@ -338,6 +337,81 @@ namespace SharpHoundCommonLib
             return sid;
         }
 
+        public IEnumerable<SearchResultEntry> DoASQRetrieval(string distinguishedName, string attributeName, string[] requestedAttributes)
+        {
+            var domainName = Helpers.DistinguishedNameToDomain(distinguishedName);
+            //Force a new LDAP connection to be created
+            var task = Task.Run(() => CreateLDAPConnection(domainName, authType: _ldapConfig.AuthType, skipCache:true));
+            
+            LdapConnection conn;
+            
+            try
+            {
+                conn = task.ConfigureAwait(false).GetAwaiter().GetResult();
+            }
+            catch
+            {
+                yield break;
+            }
+
+            if (conn == null)
+                yield break;
+
+            conn.SessionOptions.ReferralChasing = ReferralChasingOptions.All;
+
+            var searchRequest = new SearchRequest(distinguishedName, "(objectClass=*)", SearchScope.Base, requestedAttributes);
+            var asqRequestControl = new AsqRequestControl(attributeName);
+            searchRequest.Controls.Add(asqRequestControl);
+            var pageSize = GetLdapPageSize(domainName);
+            var pageRequestControl = new PageResultRequestControl(pageSize);
+            searchRequest.Controls.Add(pageRequestControl);
+            searchRequest.Controls.Add(new SearchOptionsControl(SearchOption.DomainScope));
+
+            while (true)
+            {
+                SearchResponse response;
+                PageResultResponseControl pageResponse = null;
+                try
+                {
+                    response = (SearchResponse) conn.SendRequest(searchRequest);
+
+                    if (response != null)
+                    {
+                        if (!response.Controls.Any(x => x is AsqResponseControl))
+                        {
+                            _log.LogWarning("Server does not support ASQ");
+                            yield break;
+                        }
+
+                        pageResponse = (PageResultResponseControl) response.Controls
+                            .Where(x => x is PageResultResponseControl).DefaultIfEmpty(null).FirstOrDefault();
+                    }
+                }
+                catch (Exception e)
+                {
+                    _log.LogWarning(e, "Exception during ASQ request");
+                    yield break;
+                }
+            
+                if (response == null || pageResponse == null) continue;
+                
+                if (response.Entries == null)
+                    yield break;
+                
+                
+                foreach (SearchResultEntry entry in response.Entries)
+                {
+                    yield return entry;
+                }
+                
+                if (pageResponse.Cookie.Length == 0 || response.Entries.Count == 0)
+                    yield break;
+
+                pageRequestControl.Cookie = pageResponse.Cookie;
+            }
+            
+        }
+
         /// <summary>
         ///     Performs Attribute Ranged Retrieval
         ///     https://docs.microsoft.com/en-us/windows/win32/adsi/attribute-range-retrieval
@@ -349,7 +423,8 @@ namespace SharpHoundCommonLib
         public IEnumerable<string> DoRangedRetrieval(string distinguishedName, string attributeName)
         {
             var domainName = Helpers.DistinguishedNameToDomain(distinguishedName);
-            var task = Task.Run(() => CreateLDAPConnection(domainName, authType: _ldapConfig.AuthType));
+            //Force a new LDAP connection to be created
+            var task = Task.Run(() => CreateLDAPConnection(domainName, authType: _ldapConfig.AuthType, skipCache:true));
 
             LdapConnection conn;
 
@@ -413,7 +488,6 @@ namespace SharpHoundCommonLib
                     }
 
                     if (complete) yield break;
-
                     currentRange = $"{baseString};range={index}-{index + step}";
                     searchRequest.Attributes.Clear();
                     searchRequest.Attributes.Add(currentRange);
@@ -1200,6 +1274,49 @@ namespace SharpHoundCommonLib
         }
 
         /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="domainName"></param>
+        /// <returns></returns>
+        public int GetLdapPageSize(string domainName = null)
+        {
+            var domainPath = DomainNameToDistinguishedName(domainName);
+            //Default to a page size of 750 for safety
+            if (domainPath == null)
+            {
+                _log.LogDebug("Unable to resolve domain {Domain} to distinguishedname to get page size", domainName ?? "current domain");
+                return 750;
+            }
+
+            if (_ldapPageSizeCache.TryGetValue(domainPath.ToUpper(), out var parsedPageSize))
+            {
+                return parsedPageSize;
+            }
+
+            var configPath = CommonPaths.CreateDNPath(CommonPaths.QueryPolicyPath, domainPath);
+            var config = (SearchResultEntryWrapper) QueryLDAP("(objectclass=*)", SearchScope.Base, null, adsPath: configPath).DefaultIfEmpty(null).FirstOrDefault();
+            var pageSize = config?.GetArrayProperty(LDAPProperties.LdapAdminLimits).FirstOrDefault(x => x.StartsWith("MaxPageSize", StringComparison.OrdinalIgnoreCase));
+            if (pageSize == null)
+            {
+                _log.LogDebug("No LDAPAdminLimits object found for {Domain}", domainName);
+                _ldapPageSizeCache.TryAdd(domainPath.ToUpper(), 750);
+                return 750;
+            }
+
+            if (int.TryParse(pageSize.Split('=').Last(), out parsedPageSize))
+            {
+                _ldapPageSizeCache.TryAdd(domainPath.ToUpper(), parsedPageSize);
+                _log.LogInformation("Found page size {PageSize} for {Domain}", parsedPageSize, domainName ?? "current domain");
+                return parsedPageSize;
+            }
+            
+            _log.LogDebug("Failed to parse pagesize for {Domain}, returning default", domainName ?? "current domain");
+
+            _ldapPageSizeCache.TryAdd(domainPath.ToUpper(), 750);
+            return 750;
+        }
+
+        /// <summary>
         ///     Creates a SearchRequest object for use in querying LDAP.
         /// </summary>
         /// <param name="filter">LDAP filter</param>
@@ -1225,6 +1342,12 @@ namespace SharpHoundCommonLib
                 request.Controls.Add(new ShowDeletedControl());
 
             return request;
+        }
+
+        private string DomainNameToDistinguishedName(string domain)
+        {
+            var resolvedDomain = GetDomain(domain)?.Name ?? domain;
+            return resolvedDomain == null ? null : $"DC={resolvedDomain.Replace(".", ",DC=")}";
         }
 
         /// <summary>

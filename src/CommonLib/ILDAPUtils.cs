@@ -54,6 +54,8 @@ namespace SharpHoundCommonLib
         /// <returns></returns>
         IEnumerable<string> DoRangedRetrieval(string distinguishedName, string attributeName);
 
+        IEnumerable<SearchResultEntry> DoASQRetrieval(string distinguishedName, string attributeName, string[] requestAttributes);
+
         /// <summary>
         ///     Takes a host in most applicable forms from AD and attempts to resolve it into a SID.
         /// </summary>
@@ -131,5 +133,7 @@ namespace SharpHoundCommonLib
         Forest GetForest(string domainName = null);
 
         ActiveDirectorySecurityDescriptor MakeSecurityDescriptor();
+
+        int GetLdapPageSize(string domainName = null);
     }
 }
