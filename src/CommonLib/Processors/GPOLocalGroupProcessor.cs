@@ -32,6 +32,66 @@ namespace SharpHoundCommonLib.Processors
         private static readonly Regex ExtractRid =
             new(@"S-1-5-32-([0-9]{3})", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        private static readonly Regex SystemAccessRegex =
+            new(@"\[System Access\](.*)((.[^\[])*)", RegexOptions.Compiled | RegexOptions.Singleline);
+
+        private static readonly Regex MinPassAgeRegex =
+            new(@"MinimumPasswordAge(\s)*=(\s)*(\d)+", RegexOptions.Compiled);
+
+        private static readonly Regex MaxPassAgeRegex =
+            new(@"MaximumPasswordAge(\s)*=(\s)*(\d)+", RegexOptions.Compiled);
+
+        private static readonly Regex MinPassLengthRegex =
+            new(@"MinimumPasswordLength(\s)*=(\s)*(\d)+", RegexOptions.Compiled);
+
+        private static readonly Regex PassComplexityRegex =
+            new(@"PasswordComplexity(\s)*=(\s)*(\d)+", RegexOptions.Compiled);
+
+        private static readonly Regex PassHistSizeRegex =
+            new(@"PasswordHistorySize(\s)*=(\s)*(\d)+", RegexOptions.Compiled);
+
+        private static readonly Regex ClearTextPassRegex =
+            new(@"ClearTextPassword(\s)*=(\s)*(\d)+", RegexOptions.Compiled);
+
+        private static readonly Regex LockoutDurationRegex =
+            new(@"LockoutDuration(\s)*=(\s)*(\d)+", RegexOptions.Compiled);
+
+        private static readonly Regex LockoutBadCountRegex =
+            new(@"LockoutBadCount(\s)*=(\s)*(\d)+", RegexOptions.Compiled);
+
+        private static readonly Regex ResetLockoutCountRegex =
+            new(@"ResetLockoutCount(\s)*=(\s)*(\d)+", RegexOptions.Compiled);
+
+        private static readonly Regex ForceLogoffWhenHourExpireRegex =
+            new(@"ForceLogoffWhenHourExpire(\s)*=(\s)*(\d)+", RegexOptions.Compiled);
+
+        private static readonly Regex RegistryRegex =
+            new(@"\[Registry Values\]((.[^\[])*)", RegexOptions.Compiled | RegexOptions.Singleline);
+
+        private static readonly Regex SMBEnableServerRegex =
+            new(@"LanManServer.*\\EnableSecuritySignature *= *\d+ *, *(\d)", RegexOptions.Compiled);
+
+        private static readonly Regex SMBRequireServerRegex =
+            new(@"LanManServer.*\\RequireSecuritySignature *= *\d+ *, *(\d)", RegexOptions.Compiled);
+
+        private static readonly Regex SMBEnableClientRegex =
+            new(@"LanmanWorkstation.*\\EnableSecuritySignature *= *\d+ *, *(\d)", RegexOptions.Compiled);
+
+        private static readonly Regex SMBRequireClientRegex =
+            new(@"LanmanWorkstation.*\\RequireSecuritySignature *= *\d+ *, *(\d)", RegexOptions.Compiled);
+
+        private static readonly Regex LDAPClientIntegrityRegex =
+            new(@"CurrentControlSet.*\\LDAPClientIntegrity *= *\d+ *, *(\d)", RegexOptions.Compiled);
+
+        private static readonly Regex LMLevelRegex =
+            new(@"\\LmCompatibilityLevel *= *\d+ *, *(\d)", RegexOptions.Compiled);
+
+        private static readonly Regex CachedLogonsCountRegex = 
+            new(@"\\CachedLogonsCount *= *\d+ *, *\x22(\d+)\x22", RegexOptions.Compiled);
+
+        private static readonly Regex LDAPEnforceChannelBindingRegex =
+            new(@"\\LdapEnforceChannelBinding *= *\d+ *, *(\d)", RegexOptions.Compiled);
+
         private static readonly ConcurrentDictionary<string, List<GroupAction>> GpoActionCache = new();
 
         private static readonly Dictionary<string, LocalGroupRids> ValidGroupNames =
@@ -56,12 +116,18 @@ namespace SharpHoundCommonLib.Processors
         {
             var links = entry.GetProperty(LDAPProperties.GPLink);
             var dn = entry.DistinguishedName;
-            return ReadGPOLocalGroups(links, dn);
+            var blockInheritance = entry.GetProperty("gpoptions") == "1";
+            return ReadGPOLocalGroups(links, dn, blockInheritance);
         }
-        
-        public async Task<ResultingGPOChanges> ReadGPOLocalGroups(string gpLink, string distinguishedName)
+
+        public async Task<ResultingGPOChanges> ReadGPOLocalGroups(string gpLink, string distinguishedName, bool blockInheritance = false)
         {
-            var ret = new ResultingGPOChanges();
+            var ret = new ResultingGPOChanges
+            {
+                BlockInheritance = blockInheritance,
+                Enforced = new GPOChanges(),
+                Unenforced = new GPOChanges()
+            };
             //If the gplink property is null, we don't need to process anything
             if (gpLink == null)
                 return ret;
@@ -70,7 +136,7 @@ namespace SharpHoundCommonLib.Processors
             // Its cheaper to fetch the affected computers from LDAP first and then process the GPLinks 
             var options = new LDAPQueryOptions
             {
-                Filter = new LDAPFilter().AddComputersWoutMSAs().GetFilter(),
+                Filter = new LDAPFilter().AddComputers().GetFilter(),
                 Scope = SearchScope.Subtree,
                 Properties = CommonProperties.ObjectSID,
                 AdsPath = distinguishedName
@@ -86,8 +152,8 @@ namespace SharpHoundCommonLib.Processors
                 }).ToArray();
 
             //If there's no computers then we don't care about this OU
-            if (affectedComputers.Length == 0)
-                return ret;
+            //if (affectedComputers.Length == 0)
+            //    return ret;
 
             var enforced = new List<string>();
             var unenforced = new List<string>();
@@ -111,10 +177,11 @@ namespace SharpHoundCommonLib.Processors
             orderedLinks.AddRange(enforced);
 
             var data = new Dictionary<LocalGroupRids, GroupResults>();
-            foreach (var rid in Enum.GetValues(typeof(LocalGroupRids))) data[(LocalGroupRids) rid] = new GroupResults();
+            foreach (var rid in Enum.GetValues(typeof(LocalGroupRids))) data[(LocalGroupRids)rid] = new GroupResults();
 
             foreach (var linkDn in orderedLinks)
             {
+
                 if (!GpoActionCache.TryGetValue(linkDn.ToLower(), out var actions))
                 {
                     actions = new List<GroupAction>();
@@ -139,71 +206,114 @@ namespace SharpHoundCommonLib.Processors
 
                     //Add the actions for each file. The GPO template file actions will override the XML file actions
                     actions.AddRange(ProcessGPOXmlFile(filePath, gpoDomain).ToList());
-                    await foreach (var item in ProcessGPOTemplateFile(filePath, gpoDomain))
+                    await foreach (GPOReturnTuple item in ProcessGPOTemplateFile(filePath, gpoDomain))
                     {
-                        actions.Add(item);
+                        // Add actions
+                        if (item.ContainsGroupAction())
+                        {
+                            actions.Add(item.GPOGroupAction);
+                        }
+
+                        // Add password policies
+                        foreach (var i in item.passwordPolicies)
+                        {
+                            _ = enforced.Contains(linkDn) ? (ret.Enforced.PasswordPolicies[i.Key] = i.Value) : (ret.Unenforced.PasswordPolicies[i.Key] = i.Value);
+                        }
+
+                        // Add lockout policies
+                        foreach (var i in item.lockoutPolicies)
+                        {
+                            _ = enforced.Contains(linkDn) ? (ret.Enforced.LockoutPolicies[i.Key] = i.Value) : (ret.Unenforced.LockoutPolicies[i.Key] = i.Value);
+                        }
+
+                        // Add SMB properties
+                        foreach (var i in item.GPOSMBProps)
+                        {
+                            _ = enforced.Contains(linkDn) ? (ret.Enforced.SMBSigning[i.Key] = i.Value) : (ret.Unenforced.SMBSigning[i.Key] = i.Value);
+                        }
+
+                        // Add LM properties
+                        foreach (var i in item.GPOLMProps)
+                        {
+                            _ = enforced.Contains(linkDn) ? (ret.Enforced.LMAuthenticationLevel = item.GPOLMProps) : (ret.Unenforced.LMAuthenticationLevel = item.GPOLMProps);
+                        }
+
+                        // Add LDAP properties
+                        foreach (var i in item.GPOLDAPProps)
+                        {
+                            _ = enforced.Contains(linkDn) ? (ret.Enforced.LDAPSigning[i.Key] = i.Value) : (ret.Unenforced.LDAPSigning[i.Key] = i.Value);
+                        }
+
+                        // Add MSCache properties
+                        foreach (var i in item.GPOMSCache)
+                        {
+                            _ = enforced.Contains(linkDn) ? (ret.Enforced.MSCache = item.GPOMSCache) : (ret.Unenforced.MSCache = item.GPOMSCache);
+                        }
                     }
                 }
 
                 //Cache the actions for this GPO for later
                 GpoActionCache.TryAdd(linkDn.ToLower(), actions);
 
-                //If there are no actions, then we can move on from this GPO
-                if (actions.Count == 0)
-                    continue;
+                
 
-                //First lets process restricted members
-                var restrictedMemberSets = actions.Where(x => x.Target == GroupActionTarget.RestrictedMember)
-                    .GroupBy(x => x.TargetRid);
-
-                foreach (var set in restrictedMemberSets)
+                //If there are no actions, then we can skip some instructions
+                if (actions.Count != 0)
                 {
-                    var results = data[set.Key];
-                    var members = set.Select(x => x.ToTypedPrincipal()).ToList();
-                    results.RestrictedMember = members;
-                    data[set.Key] = results;
-                }
 
-                //Next add in our restricted MemberOf sets
-                var restrictedMemberOfSets = actions.Where(x => x.Target == GroupActionTarget.RestrictedMemberOf)
-                    .GroupBy(x => x.TargetRid);
+                    //First lets process restricted members
+                    var restrictedMemberSets = actions.Where(x => x.Target == GroupActionTarget.RestrictedMember)
+                        .GroupBy(x => x.TargetRid);
 
-                foreach (var set in restrictedMemberOfSets)
-                {
-                    var results = data[set.Key];
-                    var members = set.Select(x => x.ToTypedPrincipal()).ToList();
-                    results.RestrictedMemberOf = members;
-                    data[set.Key] = results;
-                }
-
-                // Now work through the LocalGroup targets
-                var localGroupSets = actions.Where(x => x.Target == GroupActionTarget.LocalGroup)
-                    .GroupBy(x => x.TargetRid);
-
-                foreach (var set in localGroupSets)
-                {
-                    var results = data[set.Key];
-                    foreach (var temp in set)
+                    foreach (var set in restrictedMemberSets)
                     {
-                        var res = temp.ToTypedPrincipal();
-                        var newMembers = results.LocalGroups;
-                        switch (temp.Action)
-                        {
-                            case GroupActionOperation.Add:
-                                newMembers.Add(res);
-                                break;
-                            case GroupActionOperation.Delete:
-                                newMembers.RemoveAll(x => x.ObjectIdentifier == res.ObjectIdentifier);
-                                break;
-                            case GroupActionOperation.DeleteUsers:
-                                newMembers.RemoveAll(x => x.ObjectType == Label.User);
-                                break;
-                            case GroupActionOperation.DeleteGroups:
-                                newMembers.RemoveAll(x => x.ObjectType == Label.Group);
-                                break;
-                        }
+                        var results = data[set.Key];
+                        var members = set.Select(x => x.ToTypedPrincipal()).ToList();
+                        results.RestrictedMember = members;
+                        data[set.Key] = results;
+                    }
 
-                        data[set.Key].LocalGroups = newMembers;
+                    //Next add in our restricted MemberOf sets
+                    var restrictedMemberOfSets = actions.Where(x => x.Target == GroupActionTarget.RestrictedMemberOf)
+                        .GroupBy(x => x.TargetRid);
+
+                    foreach (var set in restrictedMemberOfSets)
+                    {
+                        var results = data[set.Key];
+                        var members = set.Select(x => x.ToTypedPrincipal()).ToList();
+                        results.RestrictedMemberOf = members;
+                        data[set.Key] = results;
+                    }
+
+                    // Now work through the LocalGroup targets
+                    var localGroupSets = actions.Where(x => x.Target == GroupActionTarget.LocalGroup)
+                        .GroupBy(x => x.TargetRid);
+
+                    foreach (var set in localGroupSets)
+                    {
+                        var results = data[set.Key];
+                        foreach (var temp in set)
+                        {
+                            var res = temp.ToTypedPrincipal();
+                            var newMembers = results.LocalGroups;
+                            switch (temp.Action)
+                            {
+                                case GroupActionOperation.Add:
+                                    newMembers.Add(res);
+                                    break;
+                                case GroupActionOperation.Delete:
+                                    newMembers.RemoveAll(x => x.ObjectIdentifier == res.ObjectIdentifier);
+                                    break;
+                                case GroupActionOperation.DeleteUsers:
+                                    newMembers.RemoveAll(x => x.ObjectType == Label.User);
+                                    break;
+                                case GroupActionOperation.DeleteGroups:
+                                    newMembers.RemoveAll(x => x.ObjectType == Label.Group);
+                                    break;
+                            }
+
+                            data[set.Key].LocalGroups = newMembers;
+                        }
                     }
                 }
             }
@@ -249,12 +359,12 @@ namespace SharpHoundCommonLib.Processors
         }
 
         /// <summary>
-        ///     Parses a GPO GptTmpl.inf file and pulls group membership changes out
+        ///     Parses a GPO GptTmpl.inf file and pulls group membership, password policies and registry values changes out
         /// </summary>
         /// <param name="basePath"></param>
         /// <param name="gpoDomain"></param>
         /// <returns></returns>
-        internal async IAsyncEnumerable<GroupAction> ProcessGPOTemplateFile(string basePath, string gpoDomain)
+        internal async IAsyncEnumerable<GPOReturnTuple> ProcessGPOTemplateFile(string basePath, string gpoDomain)
         {
             var templatePath = Path.Combine(basePath, "MACHINE", "Microsoft", "Windows NT", "SecEdit", "GptTmpl.inf");
 
@@ -273,81 +383,360 @@ namespace SharpHoundCommonLib.Processors
 
             using var reader = new StreamReader(fs);
             var content = await reader.ReadToEndAsync();
-            var memberMatch = MemberRegex.Match(content);
+            var sysAccessMatch = SystemAccessRegex.Match(content);
 
-            if (!memberMatch.Success)
-                yield break;
-
-            //We've got a match! Lets figure out whats going on
-            var memberText = memberMatch.Groups[1].Value.Trim();
-            //Split our text into individual lines
-            var memberLines = Regex.Split(memberText, @"\r\n|\r|\n");
-
-            foreach (var memberLine in memberLines)
+            var ret = new GPOReturnTuple
             {
-                //Check if the Key regex matches (S-1-5.*_memberof=blah)
-                var keyMatch = KeyRegex.Match(memberLine);
+                passwordPolicies = new Dictionary<string, int>(),
+                lockoutPolicies = new Dictionary<string, int>()
+            };
 
-                if (!keyMatch.Success)
-                    continue;
+            // searching for password policies
+            string minPassAge = "";
+            string maxPassAge = "";
+            string minPassLength = "";
+            string passComplexity = "";
+            string passHistSize = "";
+            string clearTextPass = "";
 
-                var key = keyMatch.Groups[1].Value.Trim();
-                var val = keyMatch.Groups[2].Value.Trim();
+            // searching for lockout policies
+            string lockoutDuration = "";
+            string lockoutBadCount = "";
+            string resetLockoutCount = "";
+            string forceLogoffWhenHourExpire = "";
 
-                var leftMatch = MemberLeftRegex.Match(key);
-                var rightMatches = MemberRightRegex.Matches(val);
+            if (sysAccessMatch.Success)
+            {// in section [System Access]
 
-                //If leftmatch is a success, the members of a group are being explicitly set
-                if (leftMatch.Success)
+                // getting the text under this section and iterate through the lines
+                var sysAccessText = sysAccessMatch.Groups[1].Value.Trim();
+                var sysAccessLines = Regex.Split(sysAccessText, @"\r\n|\r|\n");
+
+                foreach (var sysAccessLine in sysAccessLines)
                 {
-                    var extracted = ExtractRid.Match(leftMatch.Value);
-                    var rid = int.Parse(extracted.Groups[1].Value);
+                    // searching for password policies patterns
+                    var minPassAgeMatch = MinPassAgeRegex.Match(sysAccessLine);
+                    var maxPassAgeMatch = MaxPassAgeRegex.Match(sysAccessLine);
+                    var minPassLengthMatch = MinPassLengthRegex.Match(sysAccessLine);
+                    var passComplexityMatch = PassComplexityRegex.Match(sysAccessLine);
+                    var passHistSizeMatch = PassHistSizeRegex.Match(sysAccessLine);
+                    var clearTextPassMatch = ClearTextPassRegex.Match(sysAccessLine);
 
-                    if (Enum.IsDefined(typeof(LocalGroupRids), rid))
-                        //Loop over the members in the match, and try to convert them to SIDs
-                        foreach (var member in val.Split(','))
-                        {
-                            var res = GetSid(member.Trim('*'), gpoDomain);
-                            if (res == null)
-                                continue;
-                            yield return new GroupAction
-                            {
-                                Target = GroupActionTarget.RestrictedMember,
-                                Action = GroupActionOperation.Add,
-                                TargetSid = res.ObjectIdentifier,
-                                TargetType = res.ObjectType,
-                                TargetRid = (LocalGroupRids) rid
-                            };
-                        }
-                }
+                    // searching for lockout policies
+                    var lockoutDurationMatch = LockoutDurationRegex.Match(sysAccessLine);
+                    var lockoutBadCountMatch = LockoutBadCountRegex.Match(sysAccessLine);
+                    var resetLockoutCountMatch = ResetLockoutCountRegex.Match(sysAccessLine);
+                    var forceLogoffWhenHourExpireMatch = ForceLogoffWhenHourExpireRegex.Match(sysAccessLine);
 
-                //If right match is a success, a group has been set as a member of one of our local groups
-                var index = key.IndexOf("MemberOf", StringComparison.CurrentCultureIgnoreCase);
-                if (rightMatches.Count > 0 && index > 0)
-                {
-                    var account = key.Trim('*').Substring(0, index - 3).ToUpper();
-
-                    var res = GetSid(account, gpoDomain);
-                    if (res == null)
-                        continue;
-
-                    foreach (var match in rightMatches)
+                    // add to the returned tuple if pattern found
+                    if (minPassAgeMatch.Success)
                     {
-                        var rid = int.Parse(ExtractRid.Match(match.ToString()).Groups[1].Value);
-                        if (!Enum.IsDefined(typeof(LocalGroupRids), rid)) continue;
+                        minPassAge = sysAccessLine.Split('=')[1].Trim();
+                        ret.passwordPolicies.Add("MinimumPasswordAge", Int32.Parse(minPassAge));
+                    }
+                    else if (maxPassAgeMatch.Success)
+                    {
+                        maxPassAge = sysAccessLine.Split('=')[1].Trim();
+                        ret.passwordPolicies.Add("MaximumPasswordAge", Int32.Parse(maxPassAge));
+                    }
+                    else if (minPassLengthMatch.Success)
+                    {
+                        minPassLength = sysAccessLine.Split('=')[1].Trim();
+                        ret.passwordPolicies.Add("MinimumPasswordLength", Int32.Parse(minPassLength));
+                    }
+                    else if (passComplexityMatch.Success)
+                    {
+                        passComplexity = sysAccessLine.Split('=')[1].Trim();
+                        ret.passwordPolicies.Add("PasswordComplexity", Int32.Parse(passComplexity));
+                    }
+                    else if (passHistSizeMatch.Success)
+                    {
+                        passHistSize = sysAccessLine.Split('=')[1].Trim();
+                        ret.passwordPolicies.Add("PasswordHistorySize", Int32.Parse(passHistSize));
+                    }
+                    else if (clearTextPassMatch.Success)
+                    {
+                        clearTextPass = sysAccessLine.Split('=')[1].Trim();
+                        ret.passwordPolicies.Add("ClearTextPassword", Int32.Parse(clearTextPass));
+                    }
+                    else if (lockoutDurationMatch.Success)
+                    {
+                        lockoutDuration = sysAccessLine.Split('=')[1].Trim();
+                        ret.lockoutPolicies.Add("LockoutDuration", Int32.Parse(lockoutDuration));
+                    }
+                    else if (lockoutBadCountMatch.Success)
+                    {
+                        lockoutBadCount = sysAccessLine.Split('=')[1].Trim();
+                        ret.lockoutPolicies.Add("LockoutBadCount", Int32.Parse(lockoutBadCount));
+                    }
+                    else if (resetLockoutCountMatch.Success)
+                    {
+                        resetLockoutCount = sysAccessLine.Split('=')[1].Trim();
+                        ret.lockoutPolicies.Add("ResetLockoutCount", Int32.Parse(resetLockoutCount));
+                    }
+                    else if (forceLogoffWhenHourExpireMatch.Success)
+                    {
+                        forceLogoffWhenHourExpire = sysAccessLine.Split('=')[1].Trim();
+                        ret.lockoutPolicies.Add("ForceLogoffWhenHourExpire", Int32.Parse(forceLogoffWhenHourExpire));
+                    }
 
-                        var targetGroup = (LocalGroupRids) rid;
-                        yield return new GroupAction
+                }
+            }
+
+            // searching for registry values
+            ret.GPOLDAPProps = new Dictionary<string, bool>();
+            ret.GPOSMBProps = new Dictionary<string, bool>();
+            ret.GPOLMProps = new Dictionary<string, object>();
+            ret.GPOMSCache = new Dictionary<string, int>();
+
+            // check for registries
+            var regMatch = RegistryRegex.Match(content);
+
+            // initialize individual registry checks
+            bool RequiresServerSMB = false;
+            bool EnablesServerSMB = false;
+            bool RequiresClientSMB = false;
+            bool EnablesClientSMB = false;
+
+            bool RequiresLDAPSigning = false;
+            bool LDAPEnforceChannelBinding = false;
+
+            int LmCompatibilityLevel = 3;
+
+            int CachedLogonsCount = 0;
+
+            // if registry section is found
+            if (regMatch.Success)
+            {// in section [Registry Values]
+
+                // get each line and iterate through
+                var regText = regMatch.Groups[1].Value.Trim();
+                var regLines = Regex.Split(regText, @"\r\n|\r|\n");
+                foreach (var regLine in regLines)
+                {
+                    // check for individual registries
+                    var smbRequireServerMatchLine = SMBRequireServerRegex.Match(regLine);
+                    var smbEnableServerMatchLine = SMBEnableServerRegex.Match(regLine);
+                    var smbRequireClientMatchLine = SMBRequireClientRegex.Match(regLine);
+                    var smbEnableClientMatchLine = SMBEnableClientRegex.Match(regLine);
+
+                    var ldapClientMatchLine = LDAPClientIntegrityRegex.Match(regLine);
+                    var ldapChannelBindingLine = LDAPEnforceChannelBindingRegex.Match(regLine);
+
+                    var lmMatchLine = LMLevelRegex.Match(regLine);
+
+                    var cachedLogonsLine = CachedLogonsCountRegex.Match(regLine);
+
+                    // if a match is found for this registry
+                    if (smbRequireServerMatchLine.Success)
+                    {
+                        var keyMatch = KeyRegex.Match(regLine);
+                        var key = keyMatch.Value.Split(',')[1];
+
+                        switch (key)
                         {
-                            Target = GroupActionTarget.RestrictedMemberOf,
-                            Action = GroupActionOperation.Add,
-                            TargetRid = targetGroup,
-                            TargetSid = res.ObjectIdentifier,
-                            TargetType = res.ObjectType
-                        };
+                            case "1":
+                                RequiresServerSMB = true;
+                                break;
+                            case "0":
+                                RequiresServerSMB = false;
+                                break;
+                        }
+
+                        ret.GPOSMBProps.Add("RequiresServerSMBSigning", RequiresServerSMB);
+                    }
+                    else if (smbEnableServerMatchLine.Success)
+                    {
+                        var keyMatch = KeyRegex.Match(regLine);
+                        var key = keyMatch.Value.Split(',')[1];
+
+                        switch (key)
+                        {
+                            case "1":
+                                EnablesServerSMB = true;
+                                break;
+                            case "0":
+                                EnablesServerSMB = false;
+                                break;
+                        }
+
+                        ret.GPOSMBProps.Add("EnablesServerSMBSigning", EnablesServerSMB);
+                    }
+                    else if (smbRequireClientMatchLine.Success)
+                    {
+                        var keyMatch = KeyRegex.Match(regLine);
+                        var key = keyMatch.Value.Split(',')[1];
+
+                        switch (key)
+                        {
+                            case "1":
+                                RequiresClientSMB = true;
+                                break;
+                            case "0":
+                                RequiresClientSMB = false;
+                                break;
+                        }
+
+                        ret.GPOSMBProps.Add("RequiresClientSMBSigning", RequiresClientSMB);
+                    }
+                    else if (smbEnableClientMatchLine.Success)
+                    {
+                        var keyMatch = KeyRegex.Match(regLine);
+                        var key = keyMatch.Value.Split(',')[1];
+
+                        switch (key)
+                        {
+                            case "1":
+                                EnablesClientSMB = true;
+                                break;
+                            case "0":
+                                EnablesClientSMB = false;
+                                break;
+                        }
+
+                        ret.GPOSMBProps.Add("EnablesClientSMBSigning", EnablesClientSMB);
+                    }
+                    else if (lmMatchLine.Success)
+                    {
+                        var keyMatch = KeyRegex.Match(regLine);
+                        var key = keyMatch.Value.Split(',')[1];
+
+                        LmCompatibilityLevel = Int32.Parse(key);
+
+                        ret.GPOLMProps.Add("LmCompatibilityLevel", LmCompatibilityLevel);
+                    }
+                    else if (ldapClientMatchLine.Success)
+                    {
+                        var keyMatch = KeyRegex.Match(regLine);
+                        var key = keyMatch.Value.Split(',')[1];
+
+                        switch (key)
+                        {
+                            case "2": // Required
+                                RequiresLDAPSigning = true;
+                                break;
+                            case "1": // Negotiated
+                                RequiresLDAPSigning = false;
+                                break;
+                            case "0": // None
+                                RequiresLDAPSigning = false;
+                                break;
+                        }
+
+                        ret.GPOLDAPProps.Add("RequiresLDAPClientSigning", RequiresLDAPSigning);
+                    }
+                    else if (ldapChannelBindingLine.Success)
+                    {
+                        var keyMatch = KeyRegex.Match(regLine);
+                        var key = keyMatch.Value.Split(',')[1];
+
+                        switch (key)
+                        {
+                            case "2": // Always enabled
+                                LDAPEnforceChannelBinding = true;
+                                break;
+                            case "1": // Enabled, if supported
+                                LDAPEnforceChannelBinding = false;
+                                break;
+                            case "0": // Disabled
+                                LDAPEnforceChannelBinding = false;
+                                break;
+                        }
+
+                        ret.GPOLDAPProps.Add("LDAPEnforceChannelBinding", LDAPEnforceChannelBinding);
+                    }
+                    else if (cachedLogonsLine.Success)
+                    {
+                        var keyMatch = KeyRegex.Match(regLine);
+                        var key = keyMatch.Value.Split(',')[1];
+                        CachedLogonsCount = Int32.Parse(key.Substring(1, key.Length - 2));
+
+                        ret.GPOMSCache.Add("CachedLogonsCount", CachedLogonsCount);
+
                     }
                 }
             }
+
+            // searching for members
+            var memberMatch = MemberRegex.Match(content);
+
+            if (memberMatch.Success)
+            {
+                //We've got a match! Lets figure out whats going on
+                var memberText = memberMatch.Groups[1].Value.Trim();
+                //Split our text into individual lines
+                var memberLines = Regex.Split(memberText, @"\r\n|\r|\n");
+
+                foreach (var memberLine in memberLines)
+                {
+                    //Check if the Key regex matches (S-1-5.*_memberof=blah)
+                    var keyMatch = KeyRegex.Match(memberLine);
+
+                    if (!keyMatch.Success)
+                        continue;
+
+                    var key = keyMatch.Groups[1].Value.Trim();
+                    var val = keyMatch.Groups[2].Value.Trim();
+
+                    var leftMatch = MemberLeftRegex.Match(key);
+                    var rightMatches = MemberRightRegex.Matches(val);
+
+                    //If leftmatch is a success, the members of a group are being explicitly set
+                    if (leftMatch.Success)
+                    {
+                        var extracted = ExtractRid.Match(leftMatch.Value);
+                        var rid = int.Parse(extracted.Groups[1].Value);
+
+                        if (Enum.IsDefined(typeof(LocalGroupRids), rid))
+                            //Loop over the members in the match, and try to convert them to SIDs
+                            foreach (var member in val.Split(','))
+                            {
+                                var res = GetSid(member.Trim('*'), gpoDomain);
+                                if (res == null)
+                                    continue;
+                                ret.GPOGroupAction = new()
+                                {
+                                    Target = GroupActionTarget.RestrictedMember,
+                                    Action = GroupActionOperation.Add,
+                                    TargetSid = res.ObjectIdentifier,
+                                    TargetType = res.ObjectType,
+                                    TargetRid = (LocalGroupRids)rid
+                                };
+                                yield return ret;
+                            }
+                    }
+
+                    //If right match is a success, a group has been set as a member of one of our local groups
+                    var index = key.IndexOf("MemberOf", StringComparison.CurrentCultureIgnoreCase);
+                    if (rightMatches.Count > 0 && index > 0)
+                    {
+                        var account = key.Trim('*').Substring(0, index - 3).ToUpper();
+
+                        var res = GetSid(account, gpoDomain);
+                        if (res == null)
+                            continue;
+
+                        foreach (var match in rightMatches)
+                        {
+                            var rid = int.Parse(ExtractRid.Match(match.ToString()).Groups[1].Value);
+                            if (!Enum.IsDefined(typeof(LocalGroupRids), rid)) continue;
+
+                            var targetGroup = (LocalGroupRids)rid;
+                            ret.GPOGroupAction = new()
+                            {
+                                Target = GroupActionTarget.RestrictedMemberOf,
+                                Action = GroupActionOperation.Add,
+                                TargetRid = targetGroup,
+                                TargetSid = res.ObjectIdentifier,
+                                TargetType = res.ObjectType
+                            };
+                            yield return ret;
+                        }
+                    }
+                }
+            }
+            yield return ret;
+
         }
 
         /// <summary>
@@ -421,7 +810,7 @@ namespace SharpHoundCommonLib.Processors
                 _log.LogError(e, "error reading GPO XML file {File}", xmlPath);
                 yield break;
             }
-             
+
             var navigator = doc.CreateNavigator();
             //Grab all the Groups nodes
             var groupsNodes = navigator.Select("/Groups");
@@ -461,7 +850,7 @@ namespace SharpHoundCommonLib.Processors
                             {
                                 var rid = int.Parse(s.Groups[1].Value);
                                 if (Enum.IsDefined(typeof(LocalGroupRids), rid))
-                                    targetGroup = (LocalGroupRids) rid;
+                                    targetGroup = (LocalGroupRids)rid;
                             }
                         }
 
@@ -604,6 +993,22 @@ namespace SharpHoundCommonLib.Processors
             RestrictedMemberOf,
             RestrictedMember,
             LocalGroup
+        }
+
+        internal class GPOReturnTuple
+        {
+            public Dictionary<string, int> passwordPolicies = new();
+            public Dictionary<string, int> lockoutPolicies = new();
+            public Dictionary<string, bool> GPOLDAPProps = new();
+            public Dictionary<string, bool> GPOSMBProps = new();
+            public Dictionary<string, object> GPOLMProps = new();
+            public Dictionary<string, int> GPOMSCache = new();
+            public GroupAction GPOGroupAction = new();
+
+            public bool ContainsGroupAction()
+            {
+                return !(GPOGroupAction == null);
+            }
         }
     }
 }
