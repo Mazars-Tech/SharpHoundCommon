@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace SharpHoundCommonLib.OutputTypes
 {
@@ -8,5 +9,6 @@ namespace SharpHoundCommonLib.OutputTypes
         public string PrimaryGroupSID { get; set; }
         public TypedPrincipal[] HasSIDHistory { get; set; } = Array.Empty<TypedPrincipal>();
         public SPNPrivilege[] SPNTargets { get; set; } = Array.Empty<SPNPrivilege>();
+        public Dictionary<string, string> FGPP = new();
     }
 }
