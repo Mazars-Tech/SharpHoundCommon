@@ -601,6 +601,7 @@ namespace CommonLibTest
             Assert.Equal(expected, testDumpSMSAPassword);
 
         }
-        //TODO: Add coverage for ParseAllProperties
+
+        // //TODO: Add coverage for ParseAllProperties
     }
 }
