@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.DirectoryServices.Protocols;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
@@ -390,6 +391,65 @@ namespace SharpHoundCommonLib.Processors
             compProps.Props = props;
 
             return compProps;
+        }
+
+        /// <summary>
+        ///     Reads DNS LDAP properties
+        /// </summary>
+        /// <param name="entry"></param>
+        /// <returns></returns>
+        public Dictionary<string, Dictionary<string, int>> GetDNSProperties(ISearchResultEntry entry, string distinguishedname)
+        {
+            Dictionary<string, Dictionary<string, int>> dNSProps = new();
+            LDAPConfig previousLDAPConfig = _utils.GetLDAPConfig();
+
+            // update LDAP config
+            // TODO: Users container is the default one but might be modified
+            LDAPConfig config = new LDAPConfig()
+            {
+                Username = "cn="+previousLDAPConfig.Username+",cn=Users,"+distinguishedname,
+                SSL = false,
+                DisableSigning = false,
+                DisableCertVerification = false,
+                AuthType = AuthType.Basic
+            };
+            _utils.UpdateLDAPConfig(config);
+
+            // set LDAP query parameters
+            string[] attributes = {"dnsProperty", "name"};
+            var options = new LDAPQueryOptions
+            {
+                Filter = new LDAPFilter().AddDNSProperty().GetFilter(),
+                Scope = SearchScope.Subtree,
+                Properties = attributes,
+                DomainName = Helpers.DistinguishedNameToDomain(distinguishedname),
+                AdsPath = "DC=DOMAINDNSZONES," + distinguishedname
+            };
+            
+            // query LDAP
+            var rawDNSProps = _utils.QueryLDAP(options).ToArray();
+
+            // restore previous LDAP config
+            _utils.UpdateLDAPConfig(previousLDAPConfig);
+
+            // parse LDAP query's result
+            for (int i = 0; i < rawDNSProps.Length; i++)
+            {
+                byte[][] allDNSPropss = rawDNSProps[i].GetByteArrayProperty("dnsproperty");
+                string name = rawDNSProps[i].GetProperty("name");
+                dNSProps[name] = new();
+                for (int j = 0; j < allDNSPropss.Length; j++)
+                {
+                    int propertyId = BitConverter.ToInt32(allDNSPropss[j], 16);
+                    switch (propertyId)
+                    {
+                        case 2:
+                            dNSProps[name]["allowUpdate"] = BitConverter.ToInt32(allDNSPropss[j], 20);
+                            break;
+                    }
+                }
+            }
+            return dNSProps;
         }
 
         /// <summary>

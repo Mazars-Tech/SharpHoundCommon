@@ -1247,6 +1247,14 @@ namespace SharpHoundCommonLib
             _ldapConfig = config;
         }
 
+        /// <summary>
+        ///     Get the current LDAP config
+        /// </summary>
+        public LDAPConfig GetLDAPConfig()
+        {
+            return _ldapConfig;
+        }
+
         private string GetDomainNameFromSidLdap(string sid)
         {
             var hexSid = Helpers.ConvertSidToHexSid(sid);

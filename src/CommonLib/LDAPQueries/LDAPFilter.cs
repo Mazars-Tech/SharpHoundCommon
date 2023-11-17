@@ -189,6 +189,17 @@ namespace SharpHoundCommonLib.LDAPQueries
         }
 
         /// <summary>
+        ///     Add a filter that will include DNSProperty
+        /// </summary>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter AddDNSProperty(params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(objectclass=dnsZone)", conditions));
+            return this;
+        }
+
+        /// <summary>
         ///     Adds a generic user specified filter
         /// </summary>
         /// <param name="filter">LDAP Filter to add to query</param>
