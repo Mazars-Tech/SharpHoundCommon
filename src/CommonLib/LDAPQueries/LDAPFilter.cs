@@ -189,6 +189,17 @@ namespace SharpHoundCommonLib.LDAPQueries
         }
 
         /// <summary>
+        ///     Add a filter that will include Display Specifiers
+        /// </summary>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter AddDisplaySpecifiers(params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(objectClass=displaySpecifier)", conditions));
+            return this;
+        }
+
+        /// <summary>
         ///     Add a filter that will include DNSProperty
         /// </summary>
         /// <param name="conditions"></param>

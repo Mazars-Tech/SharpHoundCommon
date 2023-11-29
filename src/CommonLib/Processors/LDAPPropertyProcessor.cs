@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.DirectoryServices;
 using System.DirectoryServices.Protocols;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -10,6 +11,7 @@ using System.Threading.Tasks;
 using SharpHoundCommonLib.Enums;
 using SharpHoundCommonLib.LDAPQueries;
 using SharpHoundCommonLib.OutputTypes;
+using SearchScope = System.DirectoryServices.Protocols.SearchScope;
 
 namespace SharpHoundCommonLib.Processors
 {
@@ -391,6 +393,57 @@ namespace SharpHoundCommonLib.Processors
             compProps.Props = props;
 
             return compProps;
+        }
+
+
+        /// <summary>
+        ///     Reads Display Specifiers to find scripts
+        /// </summary>
+        /// <param name="distinguishedname"></param>
+        /// <returns></returns>
+        public Dictionary<string, List<string>> GetDisplaySpecifierScripts(string distinguishedname)
+        {
+            DirectoryEntry rootDSE = new DirectoryEntry("LDAP://RootDSE");
+            string configurationContext = rootDSE.Properties["configurationNamingContext"][0].ToString().ToUpper();
+            distinguishedname = Helpers.DistinguishedNameToDomain(distinguishedname);
+
+            List<string> scripts = new();
+
+            // set display specifiers LDAP query parameters
+            var options = new LDAPQueryOptions
+            {
+                Filter = new LDAPFilter().AddDisplaySpecifiers().GetFilter(),
+                Scope = SearchScope.Subtree,
+                DomainName = distinguishedname,
+                AdsPath = "CN=DisplaySpecifiers,"+configurationContext
+            };
+
+            // query LDAP
+            var rawProps = _utils.QueryLDAP(options).ToArray();
+            foreach (var rawProp in rawProps)
+            {
+                foreach (string name in rawProp.PropertyNames())
+                {
+                    string[] props = rawProp.GetArrayProperty(name);
+                    foreach (string prop in props)
+                    {
+                        try {
+                            string script = prop.Split(',')[2].Trim();
+                            if (script.StartsWith("\\\\") && !script.StartsWith("\\\\"+distinguishedname+"\\SYSVOL"))
+                                scripts.Add(script);
+                        }
+                        catch (Exception e)
+                        {
+                            ; // this prop is not a script
+                        }
+                    }
+                }
+            }
+
+            return new Dictionary<string, List<string>>()
+            {
+                { distinguishedname, scripts }
+            };
         }
 
         /// <summary>
