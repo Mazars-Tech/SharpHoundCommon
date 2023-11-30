@@ -19,6 +19,24 @@ namespace SharpHoundCommonLib.Processors
             _log = log ?? Logging.LogProvider.CreateLogger("FGPPProc");
         }
 
+        internal bool IsMemberOf(string userDN, string groupDN)
+        {
+            bool isMember = false;
+
+            var options = new LDAPQueryOptions
+            {
+                Filter = new LDAPFilter().CheckIsMemberOf(userDN, groupDN).GetFilter(),
+                Scope = SearchScope.Subtree
+            };
+
+            var rawMembers = _utils.QueryLDAP(options).ToArray();
+
+            if (rawMembers.Count() != 0)
+                isMember = true;
+
+            return isMember;
+        }
+
         internal string AffectedLevel(ISearchResultEntry fgpp, string distinguishedname)
         {
             if (!fgpp.PropertyNames().Contains("msds-psoappliesto"))
@@ -33,7 +51,7 @@ namespace SharpHoundCommonLib.Processors
                 if (affectedObjectUpper == distinguishedname)
                     return "User";
 
-                else if (distinguishedname.Contains(affectedObjectUpper))
+                else if (IsMemberOf(distinguishedname, affectedObjectUpper))
                     return "Group";
             }
 
@@ -61,12 +79,15 @@ namespace SharpHoundCommonLib.Processors
             {
                 try
                 {
+                    // Add if values are numbers
                     long value = Int64.Parse(fgpp.GetProperty(name));
+                    // Not set values have negative values
                     if (value >= 0)
                         finalFGPP.Add(name, String.Join(";", fgpp.GetArrayProperty(name)));
                 }
                 catch (Exception e)
                 {
+                    // Add if values are strings
                     finalFGPP.Add(name, String.Join(";", fgpp.GetArrayProperty(name)));
                 }
             }
@@ -89,6 +110,7 @@ namespace SharpHoundCommonLib.Processors
                 Filter = new LDAPFilter().AddPasswordSettings().GetFilter(),
                 Scope = SearchScope.Subtree,
                 Properties = attributes,
+                DomainName = Helpers.DistinguishedNameToDomain(distinguishedname)
             };
 
             var rawFGPPs = _utils.QueryLDAP(options).ToArray();
@@ -159,6 +181,8 @@ namespace SharpHoundCommonLib.Processors
                         finalFGPP = AddFGPP(rawFGPP, affectedLevel);
                 }
             }
+            if(finalFGPP.Count == 1)
+                return null;
             return finalFGPP;
         }
     }

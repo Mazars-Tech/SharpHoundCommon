@@ -249,6 +249,19 @@ namespace SharpHoundCommonLib.LDAPQueries
         }
 
         /// <summary>
+        ///     Checks if a user is member of a group
+        /// </summary>
+        /// <param name="user"></param>
+        /// <param name="group"></param>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter CheckIsMemberOf(string user, string group, params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(&(objectClass=user)(memberof=" + group + ")(distinguishedname=" + user + "))", conditions));
+            return this;
+        }
+
+        /// <summary>
         ///     Combines all the specified parts of the LDAP filter and merges them into a single string
         /// </summary>
         /// <returns></returns>
