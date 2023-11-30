@@ -200,6 +200,28 @@ namespace SharpHoundCommonLib.LDAPQueries
         }
 
         /// <summary>
+        ///     Add a filter that will include server references
+        /// </summary>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter AddServerReferences(params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(objectClass=server)", conditions));
+            return this;
+        }
+
+        /// <summary>
+        ///     Add a filter that will include NTDS Settings
+        /// </summary>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter AddNTDSSettings(params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(CN=NTDS Settings)", conditions));
+            return this;
+        }
+
+        /// <summary>
         ///     Add a filter that will include DNSProperty
         /// </summary>
         /// <param name="conditions"></param>
