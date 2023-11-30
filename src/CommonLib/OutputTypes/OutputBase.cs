@@ -14,7 +14,5 @@ namespace SharpHoundCommonLib.OutputTypes
         public bool IsDeleted { get; set; }
         public bool IsACLProtected { get; set; }
         public TypedPrincipal ContainedBy { get; set; }
-        public Dictionary<string, Dictionary<string, int>> DNSProperty = new();
-        public Dictionary<string, List<string>> DisplaySpecifierScripts = new();
     }
 }
