@@ -189,6 +189,50 @@ namespace SharpHoundCommonLib.LDAPQueries
         }
 
         /// <summary>
+        ///     Add a filter that will include Display Specifiers
+        /// </summary>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter AddDisplaySpecifiers(params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(objectClass=displaySpecifier)", conditions));
+            return this;
+        }
+
+        /// <summary>
+        ///     Add a filter that will include server references
+        /// </summary>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter AddServerReferences(params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(objectClass=server)", conditions));
+            return this;
+        }
+
+        /// <summary>
+        ///     Add a filter that will include NTDS Settings
+        /// </summary>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter AddNTDSSettings(params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(CN=NTDS Settings)", conditions));
+            return this;
+        }
+
+        /// <summary>
+        ///     Add a filter that will include DNSProperty
+        /// </summary>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter AddDNSProperty(params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(objectclass=dnsZone)", conditions));
+            return this;
+        }
+
+        /// <summary>
         ///     Adds a generic user specified filter
         /// </summary>
         /// <param name="filter">LDAP Filter to add to query</param>
