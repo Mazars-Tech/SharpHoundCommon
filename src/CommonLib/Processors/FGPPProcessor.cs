@@ -39,10 +39,10 @@ namespace SharpHoundCommonLib.Processors
 
         internal string AffectedLevel(ISearchResultEntry fgpp, string distinguishedname)
         {
-            if (!fgpp.PropertyNames().Contains("msds-psoappliesto"))
+            if (!fgpp.PropertyNames().Contains(LDAPProperties.PSOAppliesTo))
                 return null;
 
-            string[] affectedObjects = fgpp.GetArrayProperty("msds-psoappliesto");
+            string[] affectedObjects = fgpp.GetArrayProperty(LDAPProperties.PSOAppliesTo);
             distinguishedname = distinguishedname.ToUpper();
 
             foreach (string affectedObject in affectedObjects)
@@ -100,10 +100,10 @@ namespace SharpHoundCommonLib.Processors
         public Dictionary<string, string> GetFGPP(string id, string distinguishedname)
         {
             Dictionary<string, string> finalFGPP = new();
-            string[] attributes = {"name", "msds-lockoutthreshold", "msds-psoappliesto", "msds-minimumpasswordlength",
-                                 "msds-passwordhistorylength", "msds-lockoutobservationwindow", "msds-lockoutduration",
-                                 "msds-passwordsettingsprecedence", "msds-passwordcomplexityenabled", "Description",
-                                 "msds-passwordreversibleencryptionenabled", "msds-minimumpasswordage", "msds-maximumpasswordage"};
+            string[] attributes = {LDAPProperties.Name, LDAPProperties.LockoutThreshold, LDAPProperties.PSOAppliesTo, LDAPProperties.MinimumPasswordLength,
+                                 LDAPProperties.PasswordHistoryLength, LDAPProperties.LockoutObservationWindow, LDAPProperties.LockoutDuration,
+                                 LDAPProperties.PasswordSettingPrecedence, LDAPProperties.PasswordComplexity, LDAPProperties.Description,
+                                 LDAPProperties.PasswordReversibleEncryption, LDAPProperties.MinimumPasswordAge, LDAPProperties.MaximumPasswordAge};
 
             var options = new LDAPQueryOptions
             {
@@ -139,17 +139,17 @@ namespace SharpHoundCommonLib.Processors
                         else if (affectedLevel == finalFGPP["affectedLevel"])
                         {
                             // the current fgpp has priority
-                            if (Int32.Parse(finalFGPP["msds-passwordsettingsprecedence"]) > Int32.Parse(rawFGPP.GetProperty("msds-passwordsettingsprecedence")))
+                            if (Int32.Parse(finalFGPP[LDAPProperties.PasswordSettingPrecedence]) > Int32.Parse(rawFGPP.GetProperty(LDAPProperties.PasswordSettingPrecedence)))
                             {
                                 finalFGPP = AddFGPP(rawFGPP, affectedLevel);
                             }
                             // the stored fgpp has priority
-                            else if (Int32.Parse(finalFGPP["msds-passwordsettingsprecedence"]) < Int32.Parse(rawFGPP.GetProperty("msds-passwordsettingsprecedence")))
+                            else if (Int32.Parse(finalFGPP[LDAPProperties.PasswordSettingPrecedence]) < Int32.Parse(rawFGPP.GetProperty(LDAPProperties.PasswordSettingPrecedence)))
                             {
                                 ;
                             }
                             // the precedences are equal
-                            else if (Int32.Parse(finalFGPP["msds-passwordsettingsprecedence"]) == Int32.Parse(rawFGPP.GetProperty("msds-passwordsettingsprecedence")))
+                            else if (Int32.Parse(finalFGPP[LDAPProperties.PasswordSettingPrecedence]) == Int32.Parse(rawFGPP.GetProperty(LDAPProperties.PasswordSettingPrecedence)))
                             {
                                 int partQty = id.Split('-').Length;
                                 for (int part = 0; part < partQty; part++)

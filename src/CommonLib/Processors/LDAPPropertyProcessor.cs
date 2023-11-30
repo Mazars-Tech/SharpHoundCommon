@@ -416,7 +416,7 @@ namespace SharpHoundCommonLib.Processors
         public List<List<string>> GetDCState(string distinguishedname)
         {
             DirectoryEntry rootDSE = new DirectoryEntry("LDAP://RootDSE");
-            string configurationContext = rootDSE.Properties["configurationNamingContext"][0].ToString().ToUpper();
+            string configurationContext = rootDSE.Properties[LDAPProperties.ConfigurationNamingContext][0].ToString().ToUpper();
             string domainname = Helpers.DistinguishedNameToDomain(distinguishedname);
 
             List<List<string>> states = new();
@@ -424,7 +424,7 @@ namespace SharpHoundCommonLib.Processors
             Dictionary<string, string> NTDSSettings = new();
 
             // set options of the query for the server references
-            string[] attributes = { "distinguishedname", "serverReference" };
+            string[] attributes = { LDAPProperties.DistinguishedName, LDAPProperties.ServerReference };
             var options = new LDAPQueryOptions
             {
                 Filter = new LDAPFilter().AddServerReferences().GetFilter(),
@@ -437,13 +437,13 @@ namespace SharpHoundCommonLib.Processors
             var rawServerReferences = _utils.QueryLDAP(options).ToArray();
 
             // set options of the query for the NTDS settings
-            attributes = new string[] { "distinguishedname", "objectclass" };
+            attributes = new string[] { LDAPProperties.DistinguishedName, LDAPProperties.ObjectClass };
             options = new LDAPQueryOptions
             {
                 Filter = new LDAPFilter().AddNTDSSettings().GetFilter(),
                 Scope = SearchScope.Subtree,
                 Properties = attributes,
-                DomainName = distinguishedname,
+                DomainName = domainname,
                 AdsPath = configurationContext
             };
             // query LDAP for the NTDS settings
@@ -451,23 +451,23 @@ namespace SharpHoundCommonLib.Processors
 
             foreach(var rawNTDSSetting in rawNTDSSettings)
             {
-                foreach(string objectclass in rawNTDSSetting.GetArrayProperty("objectclass"))
+                foreach(string objectclass in rawNTDSSetting.GetArrayProperty(LDAPProperties.ObjectClass))
                 {
                     if (objectclass.Contains("nTDSDSA"))
                     {
-                        NTDSSettings.Add(rawNTDSSetting.GetProperty("distinguishedname"), objectclass);
+                        NTDSSettings.Add(rawNTDSSetting.GetProperty(LDAPProperties.DistinguishedName), objectclass);
                     }
                 }
             }
 
             foreach (var rawServerReference in rawServerReferences)
             {
-                foreach(string reference in rawServerReference.GetArrayProperty("serverReference"))
+                foreach(string reference in rawServerReference.GetArrayProperty(LDAPProperties.ServerReference))
                 {
                     state = new List<string> { reference };
                     foreach(KeyValuePair<string, string> NTDSSetting in NTDSSettings)
                     {
-                        if (NTDSSetting.Key.Contains(rawServerReference.GetProperty("distinguishedname")))
+                        if (NTDSSetting.Key.Contains(rawServerReference.GetProperty(LDAPProperties.DistinguishedName)))
                         {
                             state.Add(NTDSSetting.Value);
                         }
@@ -487,7 +487,7 @@ namespace SharpHoundCommonLib.Processors
         public Dictionary<string, List<string>> GetDisplaySpecifierScripts(string distinguishedname)
         {
             DirectoryEntry rootDSE = new DirectoryEntry("LDAP://RootDSE");
-            string configurationContext = rootDSE.Properties["configurationNamingContext"][0].ToString().ToUpper();
+            string configurationContext = rootDSE.Properties[LDAPProperties.ConfigurationNamingContext][0].ToString().ToUpper();
             distinguishedname = Helpers.DistinguishedNameToDomain(distinguishedname);
 
             List<string> scripts = new();
@@ -543,7 +543,7 @@ namespace SharpHoundCommonLib.Processors
             // TODO: Users container is the default one but might be modified
             LDAPConfig config = new LDAPConfig()
             {
-                Username = "cn="+previousLDAPConfig.Username+",cn=Users,"+distinguishedname,
+                Username = "CN="+previousLDAPConfig.Username+",CN=USERS,"+distinguishedname,
                 SSL = false,
                 DisableSigning = false,
                 DisableCertVerification = false,
@@ -552,7 +552,7 @@ namespace SharpHoundCommonLib.Processors
             _utils.UpdateLDAPConfig(config);
 
             // set LDAP query parameters
-            string[] attributes = {"dnsProperty", "name"};
+            string[] attributes = { LDAPProperties.DNSProperty, LDAPProperties.Name };
             var options = new LDAPQueryOptions
             {
                 Filter = new LDAPFilter().AddDNSProperty().GetFilter(),
@@ -571,8 +571,8 @@ namespace SharpHoundCommonLib.Processors
             // parse LDAP query's result
             for (int i = 0; i < rawDNSProps.Length; i++)
             {
-                byte[][] allDNSPropss = rawDNSProps[i].GetByteArrayProperty("dnsproperty");
-                string name = rawDNSProps[i].GetProperty("name");
+                byte[][] allDNSPropss = rawDNSProps[i].GetByteArrayProperty(LDAPProperties.DNSProperty);
+                string name = rawDNSProps[i].GetProperty(LDAPProperties.Name);
                 dNSProps[name] = new();
                 for (int j = 0; j < allDNSPropss.Length; j++)
                 {
@@ -580,7 +580,7 @@ namespace SharpHoundCommonLib.Processors
                     switch (propertyId)
                     {
                         case 2:
-                            dNSProps[name]["allowUpdate"] = BitConverter.ToInt32(allDNSPropss[j], 20);
+                            dNSProps[name][LDAPProperties.AllowUpdate] = BitConverter.ToInt32(allDNSPropss[j], 20);
                             break;
                     }
                 }

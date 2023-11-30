@@ -51,5 +51,20 @@
         public const string ScriptPath = "scriptpath";
         public const string LdapAdminLimits = "ldapadminlimits";
         public const string HostServiceAccount = "msds-hostserviceaccount";
+        public const string PSOAppliesTo = "msds-psoappliesto";
+        public const string LockoutThreshold = "msds-lockoutthreshold";
+        public const string MinimumPasswordLength = "msds-minimumpasswordlength";
+        public const string PasswordHistoryLength = "msds-passwordhistorylength";
+        public const string LockoutDuration = "msds-lockoutduration";
+        public const string LockoutObservationWindow = "msds-lockoutobservationwindow";
+        public const string PasswordSettingPrecedence = "msds-passwordsettingsprecedence";
+        public const string PasswordComplexity = "msds-passwordcomplexityenabled";
+        public const string PasswordReversibleEncryption = "msds-passwordreversibleencryptionenabled";
+        public const string MinimumPasswordAge = "msds-minimumpasswordage";
+        public const string MaximumPasswordAge = "msds-maximumpasswordage";
+        public const string ServerReference = "serverreference";
+        public const string ConfigurationNamingContext = "configurationnamingcontext";
+        public const string DNSProperty = "dnsproperty";
+        public const string AllowUpdate = "allowupdate";
     }
 }
