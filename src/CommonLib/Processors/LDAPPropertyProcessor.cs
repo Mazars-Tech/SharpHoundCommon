@@ -413,12 +413,8 @@ namespace SharpHoundCommonLib.Processors
         /// </summary>
         /// <param name="distinguishedname"></param>
         /// <returns></returns>
-        public List<List<string>> GetDCState(string distinguishedname)
+        public List<List<string>> GetDCState(string domainname, string configurationContext)
         {
-            DirectoryEntry rootDSE = new DirectoryEntry("LDAP://RootDSE");
-            string configurationContext = rootDSE.Properties[LDAPProperties.ConfigurationNamingContext][0].ToString().ToUpper();
-            string domainname = Helpers.DistinguishedNameToDomain(distinguishedname);
-
             List<List<string>> states = new();
             List<string> state;
             Dictionary<string, string> NTDSSettings = new();
@@ -484,12 +480,8 @@ namespace SharpHoundCommonLib.Processors
         /// </summary>
         /// <param name="distinguishedname"></param>
         /// <returns></returns>
-        public Dictionary<string, List<string>> GetDisplaySpecifierScripts(string distinguishedname)
+        public Dictionary<string, List<string>> GetDisplaySpecifierScripts(string domainname, string configurationContext)
         {
-            DirectoryEntry rootDSE = new DirectoryEntry("LDAP://RootDSE");
-            string configurationContext = rootDSE.Properties[LDAPProperties.ConfigurationNamingContext][0].ToString().ToUpper();
-            distinguishedname = Helpers.DistinguishedNameToDomain(distinguishedname);
-
             List<string> scripts = new();
 
             // set display specifiers LDAP query parameters
@@ -497,7 +489,7 @@ namespace SharpHoundCommonLib.Processors
             {
                 Filter = new LDAPFilter().AddDisplaySpecifiers().GetFilter(),
                 Scope = SearchScope.Subtree,
-                DomainName = distinguishedname,
+                DomainName = domainname,
                 AdsPath = "CN=DisplaySpecifiers,"+configurationContext
             };
 
@@ -512,7 +504,7 @@ namespace SharpHoundCommonLib.Processors
                     {
                         try {
                             string script = prop.Split(',')[2].Trim();
-                            if (script.StartsWith("\\\\") && !script.StartsWith("\\\\"+distinguishedname+"\\SYSVOL"))
+                            if (script.StartsWith("\\\\") && !script.StartsWith("\\\\"+domainname+"\\SYSVOL"))
                                 scripts.Add(script);
                         }
                         catch (Exception e)
@@ -525,8 +517,28 @@ namespace SharpHoundCommonLib.Processors
 
             return new Dictionary<string, List<string>>()
             {
-                { distinguishedname, scripts }
+                { domainname, scripts }
             };
+        }
+
+        /// <summary>
+        ///     Reads info from the configuration naming context
+        /// </summary>
+        /// <param name="entry"></param>
+        /// <returns></returns>
+        public Dictionary<string, object> GetConfigNamingContextInfo(string distinguishedname)
+        {
+            DirectoryEntry rootDSE = new DirectoryEntry("LDAP://RootDSE");
+            string configurationContext = rootDSE.Properties[LDAPProperties.ConfigurationNamingContext][0].ToString().ToUpper();
+            string domainname = Helpers.DistinguishedNameToDomain(distinguishedname);
+
+            Dictionary<string, object> infos = new()
+            {
+                { "displayspecifierscripts", GetDisplaySpecifierScripts(domainname, configurationContext) },
+                { "dcstate", GetDCState(domainname, configurationContext) }
+            };
+
+            return infos;
         }
 
         /// <summary>
