@@ -2,9 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.DirectoryServices;
-using System.DirectoryServices.Protocols;
 using System.Linq;
-using System.Linq.Expressions;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
@@ -280,7 +278,7 @@ namespace SharpHoundCommonLib.Processors
             var props = GetCommonProps(entry);
 
             var uac = entry.GetProperty(LDAPProperties.UserAccountControl);
-            bool enabled, unconstrained, trustedToAuth, serverTrustAccount, trustedForDelegation, partialSecretsAccount, trustedToAuthForDelegation, workstationTrustAccount;
+            bool enabled, unconstrained, trustedToAuth, serverTrustAccount, trustedForDelegation, partialSecretsAccount, workstationTrustAccount;
             if (int.TryParse(uac, out var flag))
             {
                 var flags = (UacFlags) flag;
@@ -544,24 +542,11 @@ namespace SharpHoundCommonLib.Processors
         /// <summary>
         ///     Reads DNS LDAP properties
         /// </summary>
-        /// <param name="entry"></param>
+        /// <param name="distinguishedname"></param>
         /// <returns></returns>
-        public Dictionary<string, Dictionary<string, int>> GetDNSProperties(ISearchResultEntry entry, string distinguishedname)
+        public Dictionary<string, Dictionary<string, int>> GetDNSProperties(string distinguishedname)
         {
             Dictionary<string, Dictionary<string, int>> dNSProps = new();
-            LDAPConfig previousLDAPConfig = _utils.GetLDAPConfig();
-
-            // update LDAP config
-            // TODO: Users container is the default one but might be modified
-            LDAPConfig config = new LDAPConfig()
-            {
-                Username = "CN="+previousLDAPConfig.Username+",CN=USERS,"+distinguishedname,
-                SSL = false,
-                DisableSigning = false,
-                DisableCertVerification = false,
-                AuthType = AuthType.Basic
-            };
-            _utils.UpdateLDAPConfig(config);
 
             // set LDAP query parameters
             string[] attributes = { LDAPProperties.DNSProperty, LDAPProperties.Name };
@@ -576,9 +561,6 @@ namespace SharpHoundCommonLib.Processors
             
             // query LDAP
             var rawDNSProps = _utils.QueryLDAP(options).ToArray();
-
-            // restore previous LDAP config
-            _utils.UpdateLDAPConfig(previousLDAPConfig);
 
             // parse LDAP query's result
             for (int i = 0; i < rawDNSProps.Length; i++)
