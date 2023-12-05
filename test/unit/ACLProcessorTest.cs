@@ -550,7 +550,6 @@ namespace CommonLibTest
         {
             var expectedPrincipalType = Label.Group;
             var expectedPrincipalSID = "S-1-5-21-3130019616-2776909439-2417379446-512";
-            var expectedRightName = EdgeNames.AddSelf;
 
             var mockLDAPUtils = new Mock<ILDAPUtils>();
             var mockSecurityDescriptor = new Mock<ActiveDirectorySecurityDescriptor>(MockBehavior.Loose, null);

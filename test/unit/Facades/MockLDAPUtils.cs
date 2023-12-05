@@ -10,7 +10,8 @@ using Moq;
 using SharpHoundCommonLib;
 using SharpHoundCommonLib.Enums;
 using SharpHoundCommonLib.OutputTypes;
-using Domain = SharpHoundCommonLib.OutputTypes.Domain;
+using SharpHoundRPC.Wrappers;
+using Domain = System.DirectoryServices.ActiveDirectory.Domain;
 
 namespace CommonLibTest.Facades
 {
@@ -660,6 +661,10 @@ namespace CommonLibTest.Facades
                     "S-1-5-21-3130019616-2776909439-2417379446-2106", Label.User),
                 "CN=KRBTGT,CN=USERS,DC=TESTLAB,DC=LOCAL" => new TypedPrincipal(
                     "S-1-5-21-3130019616-2776909439-2417379446-502", Label.User),
+                "S-1-5-21-4243161961-3815211218-2888324771-1103" => new TypedPrincipal(
+                    "S-1-5-21-4243161961-3815211218-2888324771-1103", Label.User),
+                "S-1-5-21-4243161961-3815211218-2888324771-512" => new TypedPrincipal(
+                    "S-1-5-21-4243161961-3815211218-2888324771-512", Label.Group),
                 _ => null
             };
 
@@ -711,7 +716,7 @@ namespace CommonLibTest.Facades
             _domainControllers.TryAdd(domainControllerSID, new byte());
         }
 
-        public System.DirectoryServices.ActiveDirectory.Domain GetDomain(string domainName = null)
+        public Domain GetDomain(string domainName = null)
         {
             throw new NotImplementedException();
         }
@@ -727,7 +732,7 @@ namespace CommonLibTest.Facades
                     Label.Computer => new Computer(),
                     Label.Group => new Group(),
                     Label.GPO => new GPO(),
-                    Label.Domain => new Domain(),
+                    Label.Domain => new SharpHoundCommonLib.OutputTypes.Domain(),
                     Label.OU => new OU(),
                     Label.Container => new Container(),
                     _ => throw new ArgumentOutOfRangeException()
@@ -1023,7 +1028,7 @@ namespace CommonLibTest.Facades
         public virtual IEnumerable<ISearchResultEntry> QueryLDAP(string ldapFilter, SearchScope scope, string[] props,
             CancellationToken cancellationToken,
             string domainName = null, bool includeAcl = false, bool showDeleted = false, string adsPath = null,
-            bool globalCatalog = false, bool skipCache = false)
+            bool globalCatalog = false, bool skipCache = false, bool throwException = false)
         {
             throw new NotImplementedException();
         }
@@ -1031,7 +1036,7 @@ namespace CommonLibTest.Facades
         public virtual IEnumerable<ISearchResultEntry> QueryLDAP(string ldapFilter, SearchScope scope, string[] props,
             string domainName = null,
             bool includeAcl = false, bool showDeleted = false, string adsPath = null, bool globalCatalog = false,
-            bool skipCache = false)
+            bool skipCache = false, bool throwException = false)
         {
             throw new NotImplementedException();
         }
@@ -1047,11 +1052,41 @@ namespace CommonLibTest.Facades
             return mockSecurityDescriptor.Object;
         }
 
+        public string BuildLdapPath(string dnPath, string domain)
+        {
+            throw new NotImplementedException();
+        }
+
         private Group GetBaseEnterpriseDC()
         {
             var g = new Group {ObjectIdentifier = "TESTLAB.LOCAL-S-1-5-9".ToUpper()};
             g.Properties.Add("name", "ENTERPRISE DOMAIN CONTROLLERS@TESTLAB.LOCAL".ToUpper());
             return g;
+        }
+
+        public TypedPrincipal ResolveCertTemplateByCN(string cn, string containerDN, string domainName)
+        {
+            throw new NotImplementedException();
+        }
+
+        public string GetConfigurationPath(string domainName)
+        {
+            throw new NotImplementedException();
+        }
+
+        public string GetSchemaPath(string domainName)
+        {
+            throw new NotImplementedException();
+        }
+
+        TypedPrincipal ILDAPUtils.ResolveCertTemplateByProperty(string propValue, string propName, string containerDN, string domainName)
+        {
+            throw new NotImplementedException();
+        }
+
+        public bool IsDomainController(string computerObjectId, string domainName)
+        {
+            throw new NotImplementedException();
         }
     }
 }

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.DirectoryServices.Protocols;
 using System.Linq;
+using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using Microsoft.Extensions.Logging;
 using SharpHoundCommonLib.Enums;
@@ -16,6 +17,8 @@ namespace SharpHoundCommonLib
         byte[] GetByteProperty(string propertyName);
         string[] GetArrayProperty(string propertyName);
         byte[][] GetByteArrayProperty(string propertyName);
+        bool GetIntProperty(string propertyName, out int value);
+        X509Certificate2[] GetCertificateArrayProperty(string propertyName);
         string GetObjectIdentifier();
         bool IsDeleted();
         Label GetLabel();
@@ -59,7 +62,7 @@ namespace SharpHoundCommonLib
             var uac = _entry.GetProperty(LDAPProperties.UserAccountControl);
             if (int.TryParse(uac, out var flag))
             {
-                var flags = (UacFlags)flag;
+                var flags = (UacFlags) flag;
                 if ((flags & UacFlags.ServerTrustAccount) != 0)
                 {
                     _log.LogTrace("Marked {SID} as a domain controller", objectId);
@@ -67,15 +70,7 @@ namespace SharpHoundCommonLib
                     _utils.AddDomainController(objectId);
                 }
             }
-
-            res.ObjectId = objectId;
-            if (IsDeleted())
-            {
-                res.Deleted = IsDeleted();
-                _log.LogTrace("{SID} is tombstoned, skipping rest of resolution", objectId);
-                return res;
-            }
-
+            
             //Try to resolve the domain
             var distinguishedName = DistinguishedName;
             string itemDomain;
@@ -95,11 +90,18 @@ namespace SharpHoundCommonLib
             {
                 itemDomain = Helpers.DistinguishedNameToDomain(distinguishedName);
             }
-
+            
             _log.LogTrace("Resolved domain for {SID} to {Domain}", objectId, itemDomain);
 
+            res.ObjectId = objectId;
             res.Domain = itemDomain;
-
+            if (IsDeleted())
+            {
+                res.Deleted = IsDeleted();
+                _log.LogTrace("{SID} is tombstoned, skipping rest of resolution", objectId);
+                return res;
+            }
+            
             if (WellKnownPrincipal.GetWellKnownPrincipal(objectId, out var wkPrincipal))
             {
                 res.DomainSid = _utils.GetSidFromDomainName(itemDomain);
@@ -140,6 +142,7 @@ namespace SharpHoundCommonLib
             {
                 case Label.User:
                 case Label.Group:
+                case Label.Base:
                     res.DisplayName = $"{samAccountName}@{itemDomain}";
                     break;
                 case Label.Computer:
@@ -165,10 +168,13 @@ namespace SharpHoundCommonLib
                     break;
                 case Label.OU:
                 case Label.Container:
+                case Label.Configuration:
+                case Label.RootCA:
+                case Label.AIACA:
+                case Label.NTAuthStore:
+                case Label.EnterpriseCA:
+                case Label.CertTemplate:
                     res.DisplayName = $"{GetProperty(LDAPProperties.Name)}@{itemDomain}";
-                    break;
-                case Label.Base:
-                    res.DisplayName = $"{samAccountName}@{itemDomain}";
                     break;
                 default:
                     throw new ArgumentOutOfRangeException();
@@ -195,6 +201,16 @@ namespace SharpHoundCommonLib
         public byte[][] GetByteArrayProperty(string propertyName)
         {
             return _entry.GetPropertyAsArrayOfBytes(propertyName);
+        }
+
+        public bool GetIntProperty(string propertyName, out int value)
+        {
+            return _entry.GetPropertyAsInt(propertyName, out value);
+        }
+
+        public X509Certificate2[] GetCertificateArrayProperty(string propertyName)
+        {
+            return _entry.GetPropertyAsArrayOfCertificates(propertyName);
         }
 
         public string GetObjectIdentifier()

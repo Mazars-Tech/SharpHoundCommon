@@ -2,30 +2,26 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
+using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using System.Threading.Tasks;
 using SharpHoundCommonLib.Enums;
+using SharpHoundCommonLib.LDAPQueries;
 using SharpHoundCommonLib.OutputTypes;
 
 namespace SharpHoundCommonLib.Processors
 {
     public class LDAPPropertyProcessor
     {
-        private static readonly string[] ReservedAttributes =
-        {
-            "pwdlastset", "lastlogon", "lastlogontimestamp", "objectsid",
-            "sidhistory", "useraccountcontrol", "operatingsystem",
-            "operatingsystemservicepack", "serviceprincipalname", "displayname", "mail", "title",
-            "homedirectory", "description", "admincount", "userpassword", "gpcfilesyspath", "objectclass",
-            "msds-behavior-version", "objectguid", "name", "gpoptions", "msds-allowedtodelegateto",
-            "msDS-allowedtoactonbehalfofotheridentity", "displayname",
-            "sidhistory", "samaccountname", "samaccounttype", "objectsid", "objectguid", "objectclass",
-            "samaccountname", "msds-groupmsamembership",
-            "distinguishedname", "memberof", "logonhours", "ntsecuritydescriptor", "dsasignature", "repluptodatevector",
-            "member", "whenCreated"
-        };
+        private static readonly string[] ReservedAttributes = CommonProperties.TypeResolutionProps
+            .Concat(CommonProperties.BaseQueryProps).Concat(CommonProperties.GroupResolutionProps)
+            .Concat(CommonProperties.ComputerMethodProps).Concat(CommonProperties.ACLProps)
+            .Concat(CommonProperties.ObjectPropsProps).Concat(CommonProperties.ContainerProps)
+            .Concat(CommonProperties.SPNTargetProps).Concat(CommonProperties.DomainTrustProps)
+            .Concat(CommonProperties.GPOLocalGroupProps).ToArray();
 
         private readonly ILDAPUtils _utils;
 
@@ -133,7 +129,7 @@ namespace SharpHoundCommonLib.Processors
         }
 
         /// <summary>
-        /// Reads specific LDAP properties related to containers
+        ///     Reads specific LDAP properties related to containers
         /// </summary>
         /// <param name="entry"></param>
         /// <returns></returns>
@@ -157,7 +153,7 @@ namespace SharpHoundCommonLib.Processors
             bool enabled, trustedToAuth, sensitive, dontReqPreAuth, passwdNotReq, unconstrained, pwdNeverExpires;
             if (int.TryParse(uac, out var flag))
             {
-                var flags = (UacFlags) flag;
+                var flags = (UacFlags)flag;
                 enabled = (flags & UacFlags.AccountDisable) == 0;
                 trustedToAuth = (flags & UacFlags.TrustedToAuthForDelegation) != 0;
                 sensitive = (flags & UacFlags.NotDelegated) != 0;
@@ -198,7 +194,7 @@ namespace SharpHoundCommonLib.Processors
                         continue;
 
                     var resolvedHost = await _utils.ResolveHostToSid(d, domain);
-                    if (resolvedHost != null && (resolvedHost.Contains(".") || resolvedHost.Contains("S-1")))
+                    if (resolvedHost != null && resolvedHost.Contains("S-1"))
                         comps.Add(new TypedPrincipal
                         {
                             ObjectIdentifier = resolvedHost,
@@ -212,7 +208,8 @@ namespace SharpHoundCommonLib.Processors
             props.Add("lastlogon", Helpers.ConvertFileTimeToUnixEpoch(entry.GetProperty(LDAPProperties.LastLogon)));
             props.Add("lastlogontimestamp",
                 Helpers.ConvertFileTimeToUnixEpoch(entry.GetProperty(LDAPProperties.LastLogonTimestamp)));
-            props.Add("pwdlastset", Helpers.ConvertFileTimeToUnixEpoch(entry.GetProperty(LDAPProperties.PasswordLastSet)));
+            props.Add("pwdlastset",
+                Helpers.ConvertFileTimeToUnixEpoch(entry.GetProperty(LDAPProperties.PasswordLastSet)));
             var spn = entry.GetArrayProperty(LDAPProperties.ServicePrincipalNames);
             props.Add("serviceprincipalnames", spn);
             props.Add("hasspn", spn.Length > 0);
@@ -284,7 +281,7 @@ namespace SharpHoundCommonLib.Processors
             bool enabled, unconstrained, trustedToAuth;
             if (int.TryParse(uac, out var flag))
             {
-                var flags = (UacFlags) flag;
+                var flags = (UacFlags)flag;
                 enabled = (flags & UacFlags.AccountDisable) == 0;
                 unconstrained = (flags & UacFlags.TrustedForDelegation) == UacFlags.TrustedForDelegation;
                 trustedToAuth = (flags & UacFlags.TrustedToAuthForDelegation) != 0;
@@ -341,7 +338,8 @@ namespace SharpHoundCommonLib.Processors
             props.Add("lastlogon", Helpers.ConvertFileTimeToUnixEpoch(entry.GetProperty(LDAPProperties.LastLogon)));
             props.Add("lastlogontimestamp",
                 Helpers.ConvertFileTimeToUnixEpoch(entry.GetProperty(LDAPProperties.LastLogonTimestamp)));
-            props.Add("pwdlastset", Helpers.ConvertFileTimeToUnixEpoch(entry.GetProperty(LDAPProperties.PasswordLastSet)));
+            props.Add("pwdlastset",
+                Helpers.ConvertFileTimeToUnixEpoch(entry.GetProperty(LDAPProperties.PasswordLastSet)));
             props.Add("serviceprincipalnames", entry.GetArrayProperty(LDAPProperties.ServicePrincipalNames));
             var os = entry.GetProperty(LDAPProperties.OperatingSystem);
             var sp = entry.GetProperty(LDAPProperties.ServicePack);
@@ -397,18 +395,167 @@ namespace SharpHoundCommonLib.Processors
         }
 
         /// <summary>
+        /// Returns the properties associated with the RootCA
+        /// </summary>
+        /// <param name="entry"></param>
+        /// <returns>Returns a dictionary with the common properties of the RootCA</returns>
+        public static Dictionary<string, object> ReadRootCAProperties(ISearchResultEntry entry)
+        {
+            var props = GetCommonProps(entry);
+
+            // Certificate
+            var rawCertificate = entry.GetByteProperty(LDAPProperties.CACertificate);
+            if (rawCertificate != null)
+            {
+                ParsedCertificate cert = new ParsedCertificate(rawCertificate);
+                props.Add("certthumbprint", cert.Thumbprint);
+                props.Add("certname", cert.Name);
+                props.Add("certchain", cert.Chain);
+                props.Add("hasbasicconstraints", cert.HasBasicConstraints);
+                props.Add("basicconstraintpathlength", cert.BasicConstraintPathLength);
+            }
+
+            return props;
+        }
+
+        /// <summary>
+        /// Returns the properties associated with the AIACA
+        /// </summary>
+        /// <param name="entry"></param>
+        /// <returns>Returns a dictionary with the common properties and the crosscertificatepair property of the AICA</returns>
+        public static Dictionary<string, object> ReadAIACAProperties(ISearchResultEntry entry)
+        {
+            var props = GetCommonProps(entry);
+            var crossCertificatePair = entry.GetByteArrayProperty((LDAPProperties.CrossCertificatePair));
+            var hasCrossCertificatePair = crossCertificatePair.Length > 0;
+
+            props.Add("crosscertificatepair", crossCertificatePair);
+            props.Add("hascrosscertificatepair", hasCrossCertificatePair);
+
+            // Certificate
+            var rawCertificate = entry.GetByteProperty(LDAPProperties.CACertificate);
+            if (rawCertificate != null)
+            {
+                ParsedCertificate cert = new ParsedCertificate(rawCertificate);
+                props.Add("certthumbprint", cert.Thumbprint);
+                props.Add("certname", cert.Name);
+                props.Add("certchain", cert.Chain);
+                props.Add("hasbasicconstraints", cert.HasBasicConstraints);
+                props.Add("basicconstraintpathlength", cert.BasicConstraintPathLength);
+            }
+
+            return props;
+        }
+
+        public static Dictionary<string, object> ReadEnterpriseCAProperties(ISearchResultEntry entry)
+        {
+            var props = GetCommonProps(entry);
+            if (entry.GetIntProperty("flags", out var flags)) props.Add("flags", (PKICertificateAuthorityFlags)flags);
+            props.Add("caname", entry.GetProperty(LDAPProperties.Name));
+            props.Add("dnshostname", entry.GetProperty(LDAPProperties.DNSHostName));
+
+            // Certificate
+            var rawCertificate = entry.GetByteProperty(LDAPProperties.CACertificate);
+            if (rawCertificate != null)
+            {
+                ParsedCertificate cert = new ParsedCertificate(rawCertificate);
+                props.Add("certthumbprint", cert.Thumbprint);
+                props.Add("certname", cert.Name);
+                props.Add("certchain", cert.Chain);
+                props.Add("hasbasicconstraints", cert.HasBasicConstraints);
+                props.Add("basicconstraintpathlength", cert.BasicConstraintPathLength);
+            }
+
+            return props;
+        }
+
+        /// <summary>
+        /// Returns the properties associated with the NTAuthStore. These properties will only contain common properties
+        /// </summary>
+        /// <param name="entry"></param>
+        /// <returns>Returns a dictionary with the common properties of the NTAuthStore</returns>
+        public static Dictionary<string, object> ReadNTAuthStoreProperties(ISearchResultEntry entry)
+        {
+            var props = GetCommonProps(entry);
+            return props;
+        }
+
+        /// <summary>
+        /// Reads specific LDAP properties related to CertTemplates
+        /// </summary>
+        /// <param name="entry"></param>
+        /// <returns>Returns a dictionary associated with the CertTemplate properties that were read</returns>
+        public static Dictionary<string, object> ReadCertTemplateProperties(ISearchResultEntry entry)
+        {
+            var props = GetCommonProps(entry);
+
+            props.Add("validityperiod", ConvertPKIPeriod(entry.GetByteProperty(LDAPProperties.PKIExpirationPeriod)));
+            props.Add("renewalperiod", ConvertPKIPeriod(entry.GetByteProperty(LDAPProperties.PKIOverlappedPeriod)));
+
+            if (entry.GetIntProperty(LDAPProperties.TemplateSchemaVersion, out var schemaVersion))
+                props.Add("schemaversion", schemaVersion);
+
+            props.Add("displayname", entry.GetProperty(LDAPProperties.DisplayName));
+            props.Add("oid", entry.GetProperty(LDAPProperties.CertTemplateOID));
+
+            if (entry.GetIntProperty(LDAPProperties.PKIEnrollmentFlag, out var enrollmentFlagsRaw))
+            {
+                var enrollmentFlags = (PKIEnrollmentFlag)enrollmentFlagsRaw;
+
+                props.Add("enrollmentflag", enrollmentFlags);
+                props.Add("requiresmanagerapproval", enrollmentFlags.HasFlag(PKIEnrollmentFlag.PEND_ALL_REQUESTS));
+                props.Add("nosecurityextension", enrollmentFlags.HasFlag(PKIEnrollmentFlag.NO_SECURITY_EXTENSION));
+            }
+
+            if (entry.GetIntProperty(LDAPProperties.PKINameFlag, out var nameFlagsRaw))
+            {
+                var nameFlags = (PKICertificateNameFlag)nameFlagsRaw;
+
+                props.Add("certificatenameflag", nameFlags);
+                props.Add("enrolleesuppliessubject",
+                    nameFlags.HasFlag(PKICertificateNameFlag.ENROLLEE_SUPPLIES_SUBJECT));
+                props.Add("subjectaltrequireupn",
+                    nameFlags.HasFlag(PKICertificateNameFlag.SUBJECT_ALT_REQUIRE_UPN));
+            }
+
+            string[] ekus = entry.GetArrayProperty(LDAPProperties.ExtendedKeyUsage);
+            props.Add("ekus", ekus);
+            string[] certificateapplicationpolicy = entry.GetArrayProperty(LDAPProperties.CertificateApplicationPolicy);
+            props.Add("certificateapplicationpolicy", certificateapplicationpolicy);
+
+            if (entry.GetIntProperty(LDAPProperties.NumSignaturesRequired, out var authorizedSignatures))
+                props.Add("authorizedsignatures", authorizedSignatures);
+
+            props.Add("applicationpolicies", entry.GetArrayProperty(LDAPProperties.ApplicationPolicies));
+            props.Add("issuancepolicies", entry.GetArrayProperty(LDAPProperties.IssuancePolicies));
+
+
+            // Construct effectiveekus
+            string[] effectiveekus = schemaVersion == 1 & ekus.Length > 0 ? ekus : certificateapplicationpolicy;
+            props.Add("effectiveekus", effectiveekus);
+
+            // Construct authenticationenabled
+            bool authenticationenabled = effectiveekus.Intersect(Helpers.AuthenticationOIDs).Any() | effectiveekus.Length == 0;
+            props.Add("authenticationenabled", authenticationenabled);
+
+            return props;
+        }
+
+        /// <summary>
         ///     Attempts to parse all LDAP attributes outside of the ones already collected and converts them to a human readable
         ///     format using a best guess
         /// </summary>
         /// <param name="entry"></param>
         public Dictionary<string, object> ParseAllProperties(ISearchResultEntry entry)
         {
-            var flag = IsTextUnicodeFlags.IS_TEXT_UNICODE_STATISTICS;
             var props = new Dictionary<string, object>();
+
+            var type = typeof(LDAPProperties);
+            var reserved = type.GetFields(BindingFlags.Static | BindingFlags.Public).Select(x => x.GetValue(null).ToString()).ToArray();
 
             foreach (var property in entry.PropertyNames())
             {
-                if (ReservedAttributes.Contains(property))
+                if (ReservedAttributes.Contains(property, StringComparer.OrdinalIgnoreCase))
                     continue;
 
                 var collCount = entry.PropCount(property);
@@ -419,8 +566,7 @@ namespace SharpHoundCommonLib.Processors
                 {
                     var testBytes = entry.GetByteProperty(property);
 
-                    if (testBytes == null || testBytes.Length == 0 ||
-                        !IsTextUnicode(testBytes, testBytes.Length, ref flag)) continue;
+                    if (testBytes == null || testBytes.Length == 0) continue;
 
                     var testString = entry.GetProperty(property);
 
@@ -433,7 +579,7 @@ namespace SharpHoundCommonLib.Processors
                 else
                 {
                     var arrBytes = entry.GetByteArrayProperty(property);
-                    if (arrBytes.Length == 0 || !IsTextUnicode(arrBytes[0], arrBytes[0].Length, ref flag))
+                    if (arrBytes.Length == 0)
                         continue;
 
                     var arr = entry.GetArrayProperty(property);
@@ -460,7 +606,71 @@ namespace SharpHoundCommonLib.Processors
             //This string corresponds to the max int, and is usually set in accountexpires
             if (property == "9223372036854775807") return -1;
 
+            //Try parsing as an int
+            if (int.TryParse(property, out var num)) return num;
+
+            //Just return the property as a string
             return property;
+        }
+
+        /// <summary>
+        ///     Converts PKIExpirationPeriod/PKIOverlappedPeriod attributes to time approximate times
+        /// </summary>
+        /// <remarks>https://www.sysadmins.lv/blog-en/how-to-convert-pkiexirationperiod-and-pkioverlapperiod-active-directory-attributes.aspx</remarks>
+        /// <param name="bytes"></param>
+        /// <returns>Returns a string representing the time period associated with the input byte array in a human readable form</returns>
+        private static string ConvertPKIPeriod(byte[] bytes)
+        {
+            if (bytes == null || bytes.Length == 0)
+                return "Unknown";
+
+            try
+            {
+                Array.Reverse(bytes);
+                var temp = BitConverter.ToString(bytes).Replace("-", "");
+                var value = Convert.ToInt64(temp, 16) * -.0000001;
+
+                if (value % 31536000 == 0 && value / 31536000 >= 1)
+                {
+                    if (value / 31536000 == 1) return "1 year";
+
+                    return $"{value / 31536000} years";
+                }
+
+                if (value % 2592000 == 0 && value / 2592000 >= 1)
+                {
+                    if (value / 2592000 == 1) return "1 month";
+
+                    return $"{value / 2592000} months";
+                }
+
+                if (value % 604800 == 0 && value / 604800 >= 1)
+                {
+                    if (value / 604800 == 1) return "1 week";
+
+                    return $"{value / 604800} weeks";
+                }
+
+                if (value % 86400 == 0 && value / 86400 >= 1)
+                {
+                    if (value / 86400 == 1) return "1 day";
+
+                    return $"{value / 86400} days";
+                }
+
+                if (value % 3600 == 0 && value / 3600 >= 1)
+                {
+                    if (value / 3600 == 1) return "1 hour";
+
+                    return $"{value / 3600} hours";
+                }
+
+                return "";
+            }
+            catch (Exception)
+            {
+                return "Unknown";
+            }
         }
 
         [DllImport("Advapi32", SetLastError = false)]
@@ -495,20 +705,60 @@ namespace SharpHoundCommonLib.Processors
         }
     }
 
+    public class ParsedCertificate
+    {
+        public string Thumbprint { get; set; }
+        public string Name { get; set; }
+        public string[] Chain { get; set; } = Array.Empty<string>();
+        public bool HasBasicConstraints { get; set; } = false;
+        public int BasicConstraintPathLength { get; set; }
+
+        public ParsedCertificate(byte[] rawCertificate)
+        {
+            var parsedCertificate = new X509Certificate2(rawCertificate);
+            Thumbprint = parsedCertificate.Thumbprint;
+            var name = parsedCertificate.FriendlyName;
+            Name = string.IsNullOrEmpty(name) ? Thumbprint : name;
+
+            // Chain
+            X509Chain chain = new X509Chain();
+            chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+            chain.Build(parsedCertificate);
+            var temp = new List<string>();
+            foreach (X509ChainElement cert in chain.ChainElements) temp.Add(cert.Certificate.Thumbprint);
+            Chain = temp.ToArray();
+
+            // Extensions
+            X509ExtensionCollection extensions = parsedCertificate.Extensions;
+            List<CertificateExtension> certificateExtensions = new List<CertificateExtension>();
+            foreach (X509Extension extension in extensions)
+            {
+                CertificateExtension certificateExtension = new CertificateExtension(extension);
+                switch (certificateExtension.Oid.Value)
+                {
+                    case CAExtensionTypes.BasicConstraints:
+                        X509BasicConstraintsExtension ext = (X509BasicConstraintsExtension)extension;
+                        HasBasicConstraints = ext.HasPathLengthConstraint;
+                        BasicConstraintPathLength = ext.PathLengthConstraint;
+                        break;
+                }
+            }
+        }
+    }
 
     public class UserProperties
     {
-        public Dictionary<string, object> Props { get; set; }
-        public TypedPrincipal[] AllowedToDelegate { get; set; }
-        public TypedPrincipal[] SidHistory { get; set; }
+        public Dictionary<string, object> Props { get; set; } = new();
+        public TypedPrincipal[] AllowedToDelegate { get; set; } = Array.Empty<TypedPrincipal>();
+        public TypedPrincipal[] SidHistory { get; set; } = Array.Empty<TypedPrincipal>();
     }
 
     public class ComputerProperties
     {
-        public Dictionary<string, object> Props { get; set; }
-        public TypedPrincipal[] AllowedToDelegate { get; set; }
-        public TypedPrincipal[] AllowedToAct { get; set; }
-        public TypedPrincipal[] SidHistory { get; set; }
-        public TypedPrincipal[] DumpSMSAPassword { get; set; }
+        public Dictionary<string, object> Props { get; set; } = new();
+        public TypedPrincipal[] AllowedToDelegate { get; set; } = Array.Empty<TypedPrincipal>();
+        public TypedPrincipal[] AllowedToAct { get; set; } = Array.Empty<TypedPrincipal>();
+        public TypedPrincipal[] SidHistory { get; set; } = Array.Empty<TypedPrincipal>();
+        public TypedPrincipal[] DumpSMSAPassword { get; set; } = Array.Empty<TypedPrincipal>();
     }
 }

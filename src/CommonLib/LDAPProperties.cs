@@ -1,6 +1,6 @@
 ﻿namespace SharpHoundCommonLib
 {
-    public class LDAPProperties
+    public static class LDAPProperties
     {
         public const string GroupMSAMembership = "msds-groupmsamembership";
         public const string UserAccountControl = "useraccountcontrol";
@@ -13,6 +13,7 @@
         public const string GPLink = "gplink";
         public const string TrustDirection = "trustdirection";
         public const string TrustAttributes = "trustattributes";
+        public const string TrustType = "trusttype";
         public const string CanonicalName = "cn";
         public const string GPCFileSYSPath = "gpcfilesyspath";
         public const string Description = "description";
@@ -41,12 +42,29 @@
         public const string SecurityIdentifier = "securityidentifier";
         public const string ObjectSID = "objectsid";
         public const string ObjectGUID = "objectguid";
+        public const string DistinguishedName = "distinguishedname";
         public const string PrimaryGroupID = "primarygroupid";
         public const string GroupPolicyOptions = "gpoptions";
         public const string UnixUserPassword = "unixuserpassword";
         public const string UnicodePassword = "unicodepwd";
         public const string MsSFU30Password = "msSFU30Password";
         public const string ScriptPath = "scriptpath";
+        public const string LdapAdminLimits = "ldapadminlimits";
         public const string HostServiceAccount = "msds-hostserviceaccount";
+        public const string PKIExpirationPeriod = "pkiexpirationperiod";
+        public const string PKIOverlappedPeriod = "pkioverlapperiod";
+        public const string TemplateSchemaVersion = "mspki-template-schema-version";
+        public const string CertTemplateOID = "mspki-cert-template-oid";
+        public const string PKIEnrollmentFlag = "mspki-enrollment-flag";
+        public const string PKINameFlag = "mspki-certificate-name-flag";
+        public const string ExtendedKeyUsage = "pkiextendedkeyusage";
+        public const string NumSignaturesRequired = "mspki-ra-signature";
+        public const string ApplicationPolicies = "mspki-ra-application-policies";
+        public const string IssuancePolicies = "mspki-ra-policies";
+        public const string CertificateApplicationPolicy = "mspki-certificate-application-policy";
+        public const string CACertificate = "cacertificate";
+        public const string CertificateTemplates = "certificatetemplates";
+        public const string CrossCertificatePair = "crosscertificatepair";
+        public const string Flags = "flags";
     }
 }

@@ -5,12 +5,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using SharpHoundCommonLib.Enums;
 using SharpHoundCommonLib.OutputTypes;
+using SharpHoundRPC.Wrappers;
 using Domain = System.DirectoryServices.ActiveDirectory.Domain;
 
 namespace SharpHoundCommonLib
 {
     /// <summary>
-    /// Struct representing options to create an LDAP query
+    ///     Struct representing options to create an LDAP query
     /// </summary>
     public struct LDAPQueryOptions
     {
@@ -24,6 +25,7 @@ namespace SharpHoundCommonLib
         public string AdsPath;
         public bool GlobalCatalog;
         public bool SkipCache;
+        public bool ThrowException;
     }
 
     public interface ILDAPUtils
@@ -32,6 +34,7 @@ namespace SharpHoundCommonLib
         bool TestLDAPConfig(string domain);
         string[] GetUserGlobalCatalogMatches(string name);
         TypedPrincipal ResolveIDAndType(string id, string fallbackDomain);
+        TypedPrincipal ResolveCertTemplateByProperty(string propValue, string propName, string containerDN, string domainName);
         Label LookupSidType(string sid, string domain);
         Label LookupGuidType(string guid, string domain);
         string GetDomainNameFromSid(string sid);
@@ -98,10 +101,12 @@ namespace SharpHoundCommonLib
         ///     Skip the connection cache and force a new connection. You must dispose of this connection
         ///     yourself.
         /// </param>
+        /// <param name="throwException">Throw exceptions rather than logging the errors directly</param>
         /// <returns>All LDAP search results matching the specified parameters</returns>
         IEnumerable<ISearchResultEntry> QueryLDAP(string ldapFilter, SearchScope scope,
             string[] props, CancellationToken cancellationToken, string domainName = null, bool includeAcl = false,
-            bool showDeleted = false, string adsPath = null, bool globalCatalog = false, bool skipCache = false);
+            bool showDeleted = false, string adsPath = null, bool globalCatalog = false, bool skipCache = false,
+            bool throwException = false);
 
         /// <summary>
         ///     Performs an LDAP query using the parameters specified by the user.
@@ -118,13 +123,18 @@ namespace SharpHoundCommonLib
         ///     Skip the connection cache and force a new connection. You must dispose of this connection
         ///     yourself.
         /// </param>
+        /// <param name="throwException">Throw exceptions rather than logging the errors directly</param>
         /// <returns>All LDAP search results matching the specified parameters</returns>
         IEnumerable<ISearchResultEntry> QueryLDAP(string ldapFilter, SearchScope scope,
             string[] props, string domainName = null, bool includeAcl = false, bool showDeleted = false,
-            string adsPath = null, bool globalCatalog = false, bool skipCache = false);
+            string adsPath = null, bool globalCatalog = false, bool skipCache = false, bool throwException = false);
 
         Forest GetForest(string domainName = null);
+        string GetConfigurationPath(string domainName);
+        string GetSchemaPath(string domainName);
 
         ActiveDirectorySecurityDescriptor MakeSecurityDescriptor();
+        string BuildLdapPath(string dnPath, string domain);
+        bool IsDomainController(string computerObjectId, string domainName);
     }
 }
