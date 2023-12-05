@@ -1,16 +1,19 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.DirectoryServices;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
+using System.Text;
 using System.Threading.Tasks;
 using SharpHoundCommonLib.Enums;
 using SharpHoundCommonLib.LDAPQueries;
 using SharpHoundCommonLib.OutputTypes;
+using SearchScope = System.DirectoryServices.Protocols.SearchScope;
 
 namespace SharpHoundCommonLib.Processors
 {
@@ -278,19 +281,27 @@ namespace SharpHoundCommonLib.Processors
             var props = GetCommonProps(entry);
 
             var uac = entry.GetProperty(LDAPProperties.UserAccountControl);
-            bool enabled, unconstrained, trustedToAuth;
+            bool enabled, unconstrained, trustedToAuth, serverTrustAccount, trustedForDelegation, partialSecretsAccount, workstationTrustAccount;
             if (int.TryParse(uac, out var flag))
             {
                 var flags = (UacFlags)flag;
                 enabled = (flags & UacFlags.AccountDisable) == 0;
                 unconstrained = (flags & UacFlags.TrustedForDelegation) == UacFlags.TrustedForDelegation;
                 trustedToAuth = (flags & UacFlags.TrustedToAuthForDelegation) != 0;
+                serverTrustAccount = (flags & UacFlags.ServerTrustAccount) != 0;
+                trustedForDelegation = (flags & UacFlags.TrustedForDelegation) != 0;
+                partialSecretsAccount = (flags & UacFlags.PartialSecretsAccount) != 0;
+                workstationTrustAccount = (flags & UacFlags.WorkstationTrustAccount) != 0;
             }
             else
             {
                 unconstrained = false;
                 enabled = true;
                 trustedToAuth = false;
+                serverTrustAccount = false;
+                trustedForDelegation = false;
+                partialSecretsAccount = false;
+                workstationTrustAccount = false;
             }
 
             var domain = Helpers.DistinguishedNameToDomain(entry.DistinguishedName);
@@ -335,6 +346,10 @@ namespace SharpHoundCommonLib.Processors
             props.Add("enabled", enabled);
             props.Add("unconstraineddelegation", unconstrained);
             props.Add("trustedtoauth", trustedToAuth);
+            props.Add("servertrustaccount", serverTrustAccount);
+            props.Add("trustedfordelegation", trustedForDelegation);
+            props.Add("partialsecretaccount", partialSecretsAccount);
+            props.Add("workstationtrustaccount", workstationTrustAccount);
             props.Add("lastlogon", Helpers.ConvertFileTimeToUnixEpoch(entry.GetProperty(LDAPProperties.LastLogon)));
             props.Add("lastlogontimestamp",
                 Helpers.ConvertFileTimeToUnixEpoch(entry.GetProperty(LDAPProperties.LastLogonTimestamp)));
@@ -539,6 +554,220 @@ namespace SharpHoundCommonLib.Processors
             props.Add("authenticationenabled", authenticationenabled);
 
             return props;
+        }
+
+        /// <summary>
+        ///     Reads shadow credentials
+        /// </summary>
+        /// <param name="distinguishedname"></param>
+        /// <returns></returns>
+        public Dictionary<string, Dictionary<string, string>> GetShadowCredentials(string distinguishedname)
+        {
+            Dictionary<string, Dictionary<string, string>> shadowCredentials = new();
+            shadowCredentials[distinguishedname] = new Dictionary<string, string>();
+
+            // set options of the query for the msds-keycredentiallink
+            string[] attributes = { LDAPProperties.KeyCredentialLink };
+            var options = new LDAPQueryOptions
+            {
+                Filter = new LDAPFilter().AddKeyCredentialLink().GetFilter(),
+                Scope = SearchScope.Subtree,
+                Properties = attributes
+            };
+            // query LDAP for the msds-keycredentiallink
+            var rawKCLs = _utils.QueryLDAP(options).ToArray();
+
+            foreach(var rawKCL in rawKCLs)
+            {
+                //TODO: try catch if empry or wrong size
+                string kcl = rawKCL.GetProperty(LDAPProperties.KeyCredentialLink.ToLower());
+                string[] kclParts = kcl.Split(':');
+                int kclSize = Int32.Parse(kclParts[1]);
+                byte[] kclBytes = Encoding.ASCII.GetBytes(kclParts[2]);
+                if(kclSize == kclBytes.Length)
+                {
+                    //TODO: unblob
+                    //shadowCredentials[distinguishedname][key] = value;
+                    shadowCredentials[distinguishedname]["keycredentiallink"] = kcl;
+                }
+            }
+            return shadowCredentials;
+        }
+
+        /// <summary>
+        ///     Reads DC state through the configuration naming context
+        /// </summary>
+        /// <param name="distinguishedname"></param>
+        /// <returns></returns>
+        public List<List<string>> GetDCState(string domainname, string configurationContext)
+        {
+            List<List<string>> states = new();
+            List<string> state;
+            Dictionary<string, string> NTDSSettings = new();
+
+            // set options of the query for the server references
+            string[] attributes = { LDAPProperties.DistinguishedName, LDAPProperties.ServerReference };
+            var options = new LDAPQueryOptions
+            {
+                Filter = new LDAPFilter().AddServerReferences().GetFilter(),
+                Scope = SearchScope.Subtree,
+                Properties = attributes,
+                DomainName = domainname,
+                AdsPath = configurationContext
+            };
+            // query LDAP for the server references
+            var rawServerReferences = _utils.QueryLDAP(options).ToArray();
+
+            // set options of the query for the NTDS settings
+            attributes = new string[] { LDAPProperties.DistinguishedName, LDAPProperties.ObjectClass };
+            options = new LDAPQueryOptions
+            {
+                Filter = new LDAPFilter().AddNTDSSettings().GetFilter(),
+                Scope = SearchScope.Subtree,
+                Properties = attributes,
+                DomainName = domainname,
+                AdsPath = configurationContext
+            };
+            // query LDAP for the NTDS settings
+            var rawNTDSSettings = _utils.QueryLDAP(options).ToArray();
+
+            foreach(var rawNTDSSetting in rawNTDSSettings)
+            {
+                foreach(string objectclass in rawNTDSSetting.GetArrayProperty(LDAPProperties.ObjectClass))
+                {
+                    if (objectclass.Contains("nTDSDSA"))
+                    {
+                        NTDSSettings.Add(rawNTDSSetting.GetProperty(LDAPProperties.DistinguishedName), objectclass);
+                    }
+                }
+            }
+
+            foreach (var rawServerReference in rawServerReferences)
+            {
+                foreach(string reference in rawServerReference.GetArrayProperty(LDAPProperties.ServerReference))
+                {
+                    state = new List<string> { reference };
+                    foreach(KeyValuePair<string, string> NTDSSetting in NTDSSettings)
+                    {
+                        if (NTDSSetting.Key.Contains(rawServerReference.GetProperty(LDAPProperties.DistinguishedName)))
+                        {
+                            state.Add(NTDSSetting.Value);
+                        }
+                    }
+                    states.Add(state);
+                }
+            }
+
+            return states;
+        }
+
+        /// <summary>
+        ///     Reads Display Specifiers to find scripts
+        /// </summary>
+        /// <param name="distinguishedname"></param>
+        /// <returns></returns>
+        public Dictionary<string, List<string>> GetDisplaySpecifierScripts(string domainname, string configurationContext)
+        {
+            List<string> scripts = new();
+
+            // set display specifiers LDAP query parameters
+            var options = new LDAPQueryOptions
+            {
+                Filter = new LDAPFilter().AddDisplaySpecifiers().GetFilter(),
+                Scope = SearchScope.Subtree,
+                DomainName = domainname,
+                AdsPath = "CN=DisplaySpecifiers,"+configurationContext
+            };
+
+            // query LDAP
+            var rawProps = _utils.QueryLDAP(options).ToArray();
+            foreach (var rawProp in rawProps)
+            {
+                foreach (string name in rawProp.PropertyNames())
+                {
+                    string[] props = rawProp.GetArrayProperty(name);
+                    foreach (string prop in props)
+                    {
+                        try {
+                            string script = prop.Split(',')[2].Trim();
+                            if (script.StartsWith("\\\\") && !script.StartsWith("\\\\"+domainname+"\\SYSVOL"))
+                                scripts.Add(script);
+                        }
+                        catch (Exception e)
+                        {
+                            ; // this prop is not a script
+                        }
+                    }
+                }
+            }
+
+            return new Dictionary<string, List<string>>()
+            {
+                { domainname, scripts }
+            };
+        }
+
+        /// <summary>
+        ///     Reads info from the configuration naming context
+        /// </summary>
+        /// <param name="entry"></param>
+        /// <returns></returns>
+        public Dictionary<string, object> GetConfigNamingContextInfo(string distinguishedname)
+        {
+            DirectoryEntry rootDSE = new DirectoryEntry("LDAP://RootDSE");
+            string configurationContext = rootDSE.Properties[LDAPProperties.ConfigurationNamingContext][0].ToString().ToUpper();
+            string domainname = Helpers.DistinguishedNameToDomain(distinguishedname);
+
+            Dictionary<string, object> infos = new()
+            {
+                { "displayspecifierscripts", GetDisplaySpecifierScripts(domainname, configurationContext) },
+                { "dcstate", GetDCState(domainname, configurationContext) }
+            };
+
+            return infos;
+        }
+
+        /// <summary>
+        ///     Reads DNS LDAP properties
+        /// </summary>
+        /// <param name="distinguishedname"></param>
+        /// <returns></returns>
+        public Dictionary<string, Dictionary<string, int>> GetDNSProperties(string distinguishedname)
+        {
+            Dictionary<string, Dictionary<string, int>> dNSProps = new();
+
+            // set LDAP query parameters
+            string[] attributes = { LDAPProperties.DNSProperty, LDAPProperties.Name };
+            var options = new LDAPQueryOptions
+            {
+                Filter = new LDAPFilter().AddDNSProperty().GetFilter(),
+                Scope = SearchScope.Subtree,
+                Properties = attributes,
+                DomainName = Helpers.DistinguishedNameToDomain(distinguishedname),
+                AdsPath = "DC=DOMAINDNSZONES," + distinguishedname
+            };
+            
+            // query LDAP
+            var rawDNSProps = _utils.QueryLDAP(options).ToArray();
+
+            // parse LDAP query's result
+            for (int i = 0; i < rawDNSProps.Length; i++)
+            {
+                byte[][] allDNSPropss = rawDNSProps[i].GetByteArrayProperty(LDAPProperties.DNSProperty);
+                string name = rawDNSProps[i].GetProperty(LDAPProperties.Name);
+                dNSProps[name] = new();
+                for (int j = 0; j < allDNSPropss.Length; j++)
+                {
+                    int propertyId = BitConverter.ToInt32(allDNSPropss[j], 16);
+                    switch (propertyId)
+                    {
+                        case 2:
+                            dNSProps[name][LDAPProperties.AllowUpdate] = BitConverter.ToInt32(allDNSPropss[j], 20);
+                            break;
+                    }
+                }
+            }
+            return dNSProps;
         }
 
         /// <summary>

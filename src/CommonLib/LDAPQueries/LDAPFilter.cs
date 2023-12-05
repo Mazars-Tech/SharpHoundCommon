@@ -224,6 +224,72 @@ namespace SharpHoundCommonLib.LDAPQueries
         }
 
         /// <summary>
+        ///     Add a filter that will include Password Settings Objects
+        /// </summary>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter AddPasswordSettings(params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(objectclass=msDS-PasswordSettings)", conditions));
+            return this;
+        }
+
+        /// <summary>
+        ///     Add a filter that will include msDS-KeyCredentialLink
+        /// </summary>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter AddKeyCredentialLink(params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(msDS-KeyCredentialLink=*)", conditions));
+            return this;
+        }
+
+        /// <summary>
+        ///     Add a filter that will include Display Specifiers
+        /// </summary>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter AddDisplaySpecifiers(params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(objectClass=displaySpecifier)", conditions));
+            return this;
+        }
+
+        /// <summary>
+        ///     Add a filter that will include server references
+        /// </summary>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter AddServerReferences(params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(objectClass=server)", conditions));
+            return this;
+        }
+
+        /// <summary>
+        ///     Add a filter that will include NTDS Settings
+        /// </summary>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter AddNTDSSettings(params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(CN=NTDS Settings)", conditions));
+            return this;
+        }
+
+        /// <summary>
+        ///     Add a filter that will include DNSProperty
+        /// </summary>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter AddDNSProperty(params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(objectclass=dnsZone)", conditions));
+            return this;
+        }
+
+        /// <summary>
         ///     Adds a generic user specified filter
         /// </summary>
         /// <param name="filter">LDAP Filter to add to query</param>
@@ -236,6 +302,19 @@ namespace SharpHoundCommonLib.LDAPQueries
             else
                 _filterParts.Add(FixFilter(filter));
 
+            return this;
+        }
+
+        /// <summary>
+        ///     Checks if a user is member of a group
+        /// </summary>
+        /// <param name="user"></param>
+        /// <param name="group"></param>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter CheckIsMemberOf(string user, string group, params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(&(objectClass=user)(memberof=" + group + ")(distinguishedname=" + user + "))", conditions));
             return this;
         }
 
