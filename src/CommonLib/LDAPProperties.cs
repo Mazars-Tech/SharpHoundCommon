@@ -66,5 +66,6 @@
         public const string ConfigurationNamingContext = "configurationnamingcontext";
         public const string DNSProperty = "dnsproperty";
         public const string AllowUpdate = "allowupdate";
+        public const string KeyCredentialLink = "msds-keycredentiallink";
     }
 }

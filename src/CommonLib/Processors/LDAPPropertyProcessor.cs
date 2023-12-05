@@ -6,6 +6,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using System.Text;
 using System.Threading.Tasks;
 using SharpHoundCommonLib.Enums;
 using SharpHoundCommonLib.LDAPQueries;
@@ -404,6 +405,44 @@ namespace SharpHoundCommonLib.Processors
             compProps.Props = props;
 
             return compProps;
+        }
+
+        /// <summary>
+        ///     Reads shadow credentials
+        /// </summary>
+        /// <param name="distinguishedname"></param>
+        /// <returns></returns>
+        public Dictionary<string, Dictionary<string, string>> GetShadowCredentials(string distinguishedname)
+        {
+            Dictionary<string, Dictionary<string, string>> shadowCredentials = new();
+            shadowCredentials[distinguishedname] = new Dictionary<string, string>();
+
+            // set options of the query for the msds-keycredentiallink
+            string[] attributes = { LDAPProperties.KeyCredentialLink };
+            var options = new LDAPQueryOptions
+            {
+                Filter = new LDAPFilter().AddKeyCredentialLink().GetFilter(),
+                Scope = SearchScope.Subtree,
+                Properties = attributes
+            };
+            // query LDAP for the msds-keycredentiallink
+            var rawKCLs = _utils.QueryLDAP(options).ToArray();
+
+            foreach(var rawKCL in rawKCLs)
+            {
+                //TODO: try catch if empry or wrong size
+                string kcl = rawKCL.GetProperty(LDAPProperties.KeyCredentialLink.ToLower());
+                string[] kclParts = kcl.Split(':');
+                int kclSize = Int32.Parse(kclParts[1]);
+                byte[] kclBytes = Encoding.ASCII.GetBytes(kclParts[2]);
+                if(kclSize == kclBytes.Length)
+                {
+                    //TODO: unblob
+                    //shadowCredentials[distinguishedname][key] = value;
+                    shadowCredentials[distinguishedname]["keycredentiallink"] = kcl;
+                }
+            }
+            return shadowCredentials;
         }
 
         /// <summary>

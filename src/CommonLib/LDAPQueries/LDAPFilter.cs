@@ -189,6 +189,17 @@ namespace SharpHoundCommonLib.LDAPQueries
         }
 
         /// <summary>
+        ///     Add a filter that will include msDS-KeyCredentialLink
+        /// </summary>
+        /// <param name="conditions"></param>
+        /// <returns></returns>
+        public LDAPFilter AddKeyCredentialLink(params string[] conditions)
+        {
+            _filterParts.Add(BuildString("(msDS-KeyCredentialLink=*)", conditions));
+            return this;
+        }
+
+        /// <summary>
         ///     Add a filter that will include Display Specifiers
         /// </summary>
         /// <param name="conditions"></param>
