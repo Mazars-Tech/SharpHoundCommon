@@ -440,6 +440,7 @@ namespace SharpHoundCommonLib.Processors
                 if (kclSize == kclBytes.Length*2)
                 {
                     long fileTime = 0;
+                    long epochTime = 0;
                     var reader = new BinaryReader(kclStream);
                     // read BLOB version
                     int version = BitConverter.ToInt32(reader.ReadBytes(4), 0);
@@ -465,12 +466,15 @@ namespace SharpHoundCommonLib.Processors
                             case 8:
                                 fileTime = BitConverter.ToInt64(reader.ReadBytes(dataLength), 0);
                                 // conversion to Unix epoch time
-                                shadowCredentials["keyapproximatelastlogontimestamp"] = (fileTime - 116444736000000000) / 10000000;
+                                epochTime = Helpers.ConvertFileTimeToUnixEpoch(fileTime.ToString());
+                                shadowCredentials["keyapproximatelastlogontimestamp"] = epochTime;
                                 break;
                             // KeyCreationTimeStamp
                             case 9:
                                 fileTime = BitConverter.ToInt64(reader.ReadBytes(dataLength), 0);
-                                shadowCredentials["keycreationtimestamp"] = (fileTime - 116444736000000000) / 10000000;
+                                // conversion to Unix epoch time
+                                epochTime = Helpers.ConvertFileTimeToUnixEpoch(fileTime.ToString());
+                                shadowCredentials["keycreationtimestamp"] = epochTime;
                                 break;
                             default:
                                 reader.ReadBytes(dataLength);
