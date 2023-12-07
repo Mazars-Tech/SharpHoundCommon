@@ -2,11 +2,11 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.DirectoryServices;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
-using System.Text;
 using System.Threading.Tasks;
 using SharpHoundCommonLib.Enums;
 using SharpHoundCommonLib.LDAPQueries;
@@ -412,10 +412,9 @@ namespace SharpHoundCommonLib.Processors
         /// </summary>
         /// <param name="distinguishedname"></param>
         /// <returns></returns>
-        public Dictionary<string, Dictionary<string, string>> GetShadowCredentials(string distinguishedname)
+        public Dictionary<string, object> GetShadowCredentials()
         {
-            Dictionary<string, Dictionary<string, string>> shadowCredentials = new();
-            shadowCredentials[distinguishedname] = new Dictionary<string, string>();
+            Dictionary<string, object> shadowCredentials = new();
 
             // set options of the query for the msds-keycredentiallink
             string[] attributes = { LDAPProperties.KeyCredentialLink };
@@ -428,18 +427,59 @@ namespace SharpHoundCommonLib.Processors
             // query LDAP for the msds-keycredentiallink
             var rawKCLs = _utils.QueryLDAP(options).ToArray();
 
+            // parse results
             foreach(var rawKCL in rawKCLs)
             {
-                //TODO: try catch if empry or wrong size
                 string kcl = rawKCL.GetProperty(LDAPProperties.KeyCredentialLink.ToLower());
                 string[] kclParts = kcl.Split(':');
+                if (kclParts.Length != 4)
+                    continue;
                 int kclSize = Int32.Parse(kclParts[1]);
-                byte[] kclBytes = Encoding.ASCII.GetBytes(kclParts[2]);
-                if(kclSize == kclBytes.Length)
+                byte[] kclBytes = Helpers.StringToByteArray(kclParts[2]);
+                Stream kclStream = new MemoryStream(kclBytes);
+                if (kclSize == kclBytes.Length*2)
                 {
-                    //TODO: unblob
-                    //shadowCredentials[distinguishedname][key] = value;
-                    shadowCredentials[distinguishedname]["keycredentiallink"] = kcl;
+                    long fileTime = 0;
+                    var reader = new BinaryReader(kclStream);
+                    // read BLOB version
+                    int version = BitConverter.ToInt32(reader.ReadBytes(4), 0);
+
+                    // read BLOB entries
+                    byte[] rawDataLength = reader.ReadBytes(2);
+                    while (rawDataLength != null && rawDataLength.Length > 0)
+                    {
+                        // read entry length
+                        int dataLength = BitConverter.ToInt16(rawDataLength, 0);
+
+                        // read entry type
+                        int dataType = reader.ReadByte();
+
+                        // read entry value
+                        switch (dataType)
+                        {
+                            // DeviceId
+                            case 6:
+                                shadowCredentials["deviceid"] = BitConverter.ToString(reader.ReadBytes(dataLength));
+                                break;
+                            // KeyApproximateLastLogonTimeStamp
+                            case 8:
+                                fileTime = BitConverter.ToInt64(reader.ReadBytes(dataLength), 0);
+                                // conversion to Unix epoch time
+                                shadowCredentials["keyapproximatelastlogontimestamp"] = (fileTime - 116444736000000000) / 10000000;
+                                break;
+                            // KeyCreationTimeStamp
+                            case 9:
+                                fileTime = BitConverter.ToInt64(reader.ReadBytes(dataLength), 0);
+                                shadowCredentials["keycreationtimestamp"] = (fileTime - 116444736000000000) / 10000000;
+                                break;
+                            default:
+                                reader.ReadBytes(dataLength);
+                                break;
+                        }
+
+                        rawDataLength = reader.ReadBytes(2);
+
+                    }
                 }
             }
             return shadowCredentials;
