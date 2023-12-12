@@ -643,10 +643,9 @@ namespace SharpHoundCommonLib.Processors
         /// </summary>
         /// <param name="distinguishedname"></param>
         /// <returns></returns>
-        public List<List<string>> GetDCState(string domainname, string configurationContext)
+        public Dictionary<string, string> GetDCState(string domainname, string configurationContext)
         {
-            List<List<string>> states = new();
-            List<string> state;
+            Dictionary<string, string> states = new();
             Dictionary<string, string> NTDSSettings = new();
 
             // set options of the query for the server references
@@ -690,15 +689,14 @@ namespace SharpHoundCommonLib.Processors
             {
                 foreach(string reference in rawServerReference.GetArrayProperty(LDAPProperties.ServerReference))
                 {
-                    state = new List<string> { reference };
+                    states[reference] = "unsecure";
                     foreach(KeyValuePair<string, string> NTDSSetting in NTDSSettings)
                     {
                         if (NTDSSetting.Key.Contains(rawServerReference.GetProperty(LDAPProperties.DistinguishedName)))
                         {
-                            state.Add(NTDSSetting.Value);
+                            states[reference] = "secure";
                         }
                     }
-                    states.Add(state);
                 }
             }
 
