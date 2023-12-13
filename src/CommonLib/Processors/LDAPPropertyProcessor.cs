@@ -444,7 +444,10 @@ namespace SharpHoundCommonLib.Processors
                     switch (propertyId)
                     {
                         case 2:
-                            dNSProps[name]["allowUpdate"] = BitConverter.ToInt32(allDNSPropss[j], 20);
+                            int allowUpdateValue = BitConverter.ToInt32(allDNSPropss[j], 20);
+                            if (allowUpdateValue == 0 || allowUpdateValue == 1 || allowUpdateValue == 2) {
+                                dNSProps[name]["allowUpdate"] = allowUpdateValue;
+                            }
                             break;
                     }
                 }
