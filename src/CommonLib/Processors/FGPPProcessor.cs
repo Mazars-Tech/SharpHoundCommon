@@ -75,20 +75,21 @@ namespace SharpHoundCommonLib.Processors
         {
             Dictionary<string, string> finalFGPP = new();
 
-            foreach (var name in fgpp.PropertyNames())
+            foreach (string name in fgpp.PropertyNames())
             {
+                string cleanName = name.Replace('-', '_');
                 try
                 {
                     // Add if values are numbers
                     long value = Int64.Parse(fgpp.GetProperty(name));
                     // Not set values have negative values
                     if (value >= 0)
-                        finalFGPP.Add(name, String.Join(";", fgpp.GetArrayProperty(name)));
+                        finalFGPP.Add(cleanName, String.Join(";", fgpp.GetArrayProperty(name)));
                 }
                 catch (Exception e)
                 {
                     // Add if values are strings
-                    finalFGPP.Add(name, String.Join(";", fgpp.GetArrayProperty(name)));
+                    finalFGPP.Add(cleanName, String.Join(";", fgpp.GetArrayProperty(name)));
                 }
             }
 
@@ -139,17 +140,17 @@ namespace SharpHoundCommonLib.Processors
                         else if (affectedLevel == finalFGPP["affectedLevel"])
                         {
                             // the current fgpp has priority
-                            if (Int32.Parse(finalFGPP[LDAPProperties.PasswordSettingPrecedence]) > Int32.Parse(rawFGPP.GetProperty(LDAPProperties.PasswordSettingPrecedence)))
+                            if (Int32.Parse(finalFGPP[LDAPProperties.PasswordSettingPrecedence.Replace('-', '_')]) > Int32.Parse(rawFGPP.GetProperty(LDAPProperties.PasswordSettingPrecedence)))
                             {
                                 finalFGPP = AddFGPP(rawFGPP, affectedLevel);
                             }
                             // the stored fgpp has priority
-                            else if (Int32.Parse(finalFGPP[LDAPProperties.PasswordSettingPrecedence]) < Int32.Parse(rawFGPP.GetProperty(LDAPProperties.PasswordSettingPrecedence)))
+                            else if (Int32.Parse(finalFGPP[LDAPProperties.PasswordSettingPrecedence.Replace('-', '_')]) < Int32.Parse(rawFGPP.GetProperty(LDAPProperties.PasswordSettingPrecedence)))
                             {
                                 ;
                             }
                             // the precedences are equal
-                            else if (Int32.Parse(finalFGPP[LDAPProperties.PasswordSettingPrecedence]) == Int32.Parse(rawFGPP.GetProperty(LDAPProperties.PasswordSettingPrecedence)))
+                            else if (Int32.Parse(finalFGPP[LDAPProperties.PasswordSettingPrecedence.Replace('-', '_')]) == Int32.Parse(rawFGPP.GetProperty(LDAPProperties.PasswordSettingPrecedence)))
                             {
                                 int partQty = id.Split('-').Length;
                                 for (int part = 0; part < partQty; part++)
