@@ -643,9 +643,12 @@ namespace SharpHoundCommonLib.Processors
         /// </summary>
         /// <param name="distinguishedname"></param>
         /// <returns></returns>
-        public Dictionary<string, string> GetDCState(string domainname, string configurationContext)
+        public string GetDCState(string distinguishedname)
         {
-            Dictionary<string, string> states = new();
+            DirectoryEntry rootDSE = new DirectoryEntry("LDAP://RootDSE");
+            string configurationContext = rootDSE.Properties[LDAPProperties.ConfigurationNamingContext][0].ToString().ToUpper();
+
+            string states = "unsecure";
             Dictionary<string, string> NTDSSettings = new();
 
             // set options of the query for the server references
@@ -655,7 +658,6 @@ namespace SharpHoundCommonLib.Processors
                 Filter = new LDAPFilter().AddServerReferences().GetFilter(),
                 Scope = SearchScope.Subtree,
                 Properties = attributes,
-                DomainName = domainname,
                 AdsPath = configurationContext
             };
             // query LDAP for the server references
@@ -668,7 +670,6 @@ namespace SharpHoundCommonLib.Processors
                 Filter = new LDAPFilter().AddNTDSSettings().GetFilter(),
                 Scope = SearchScope.Subtree,
                 Properties = attributes,
-                DomainName = domainname,
                 AdsPath = configurationContext
             };
             // query LDAP for the NTDS settings
@@ -689,12 +690,15 @@ namespace SharpHoundCommonLib.Processors
             {
                 foreach(string reference in rawServerReference.GetArrayProperty(LDAPProperties.ServerReference))
                 {
-                    states[reference] = "unsecure";
-                    foreach(KeyValuePair<string, string> NTDSSetting in NTDSSettings)
+                    if (reference.ToUpper() == distinguishedname)
                     {
-                        if (NTDSSetting.Key.Contains(rawServerReference.GetProperty(LDAPProperties.DistinguishedName)))
+                        states = "unsecure";
+                        foreach (KeyValuePair<string, string> NTDSSetting in NTDSSettings)
                         {
-                            states[reference] = "secure";
+                            if (NTDSSetting.Key.Contains(rawServerReference.GetProperty(LDAPProperties.DistinguishedName)))
+                            {
+                                states = "secure";
+                            }
                         }
                     }
                 }
@@ -708,8 +712,12 @@ namespace SharpHoundCommonLib.Processors
         /// </summary>
         /// <param name="distinguishedname"></param>
         /// <returns></returns>
-        public Dictionary<string, List<string>> GetDisplaySpecifierScripts(string domainname, string configurationContext)
+        public List<string> GetDisplaySpecifierScripts(string distinguishedname)
         {
+            DirectoryEntry rootDSE = new DirectoryEntry("LDAP://RootDSE");
+            string configurationContext = rootDSE.Properties[LDAPProperties.ConfigurationNamingContext][0].ToString().ToUpper();
+            string domainname = Helpers.DistinguishedNameToDomain(distinguishedname);
+
             List<string> scripts = new();
 
             // set display specifiers LDAP query parameters
@@ -743,30 +751,10 @@ namespace SharpHoundCommonLib.Processors
                 }
             }
 
-            return new Dictionary<string, List<string>>()
+            return new List<string>()
             {
-                { domainname, scripts }
+                domainname + "/" + String.Join("/", scripts)
             };
-        }
-
-        /// <summary>
-        ///     Reads info from the configuration naming context
-        /// </summary>
-        /// <param name="entry"></param>
-        /// <returns></returns>
-        public Dictionary<string, object> GetConfigNamingContextInfo(string distinguishedname)
-        {
-            DirectoryEntry rootDSE = new DirectoryEntry("LDAP://RootDSE");
-            string configurationContext = rootDSE.Properties[LDAPProperties.ConfigurationNamingContext][0].ToString().ToUpper();
-            string domainname = Helpers.DistinguishedNameToDomain(distinguishedname);
-
-            Dictionary<string, object> infos = new()
-            {
-                { "displayspecifierscripts", GetDisplaySpecifierScripts(domainname, configurationContext) },
-                { "dcstate", GetDCState(domainname, configurationContext) }
-            };
-
-            return infos;
         }
 
         /// <summary>
@@ -774,9 +762,9 @@ namespace SharpHoundCommonLib.Processors
         /// </summary>
         /// <param name="distinguishedname"></param>
         /// <returns></returns>
-        public Dictionary<string, Dictionary<string, int>> GetDNSProperties(string distinguishedname)
+        public List<string> GetDNSProperties(string distinguishedname)
         {
-            Dictionary<string, Dictionary<string, int>> dNSProps = new();
+            List<string> dNSProps = new();
 
             // set LDAP query parameters
             string[] attributes = { LDAPProperties.DNSProperty, LDAPProperties.Name };
@@ -797,7 +785,6 @@ namespace SharpHoundCommonLib.Processors
             {
                 byte[][] allDNSPropss = rawDNSProps[i].GetByteArrayProperty(LDAPProperties.DNSProperty);
                 string name = rawDNSProps[i].GetProperty(LDAPProperties.Name);
-                dNSProps[name] = new();
                 for (int j = 0; j < allDNSPropss.Length; j++)
                 {
                     int propertyId = BitConverter.ToInt32(allDNSPropss[j], 16);
@@ -806,7 +793,7 @@ namespace SharpHoundCommonLib.Processors
                         case 2:
                             int allowUpdateValue = BitConverter.ToInt32(allDNSPropss[j], 20);
                             if (allowUpdateValue == 0 || allowUpdateValue == 1 || allowUpdateValue == 2) {
-                                dNSProps[name]["allowUpdate"] = allowUpdateValue;
+                                dNSProps.Add(name+"/allowUpdate/"+allowUpdateValue.ToString());
                             }
                             break;
                     }
