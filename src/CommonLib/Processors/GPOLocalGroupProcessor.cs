@@ -923,6 +923,11 @@ namespace SharpHoundCommonLib.Processors
                                     var domain = s[0];
 
                                     var res = _utils.ResolveAccountName(name, domain);
+                                    if (res == null)
+                                    {
+                                        _log.LogWarning("Failed to resolve member {memberName}", memberName);
+                                        continue;
+                                    }
                                     ga.Target = GroupActionTarget.LocalGroup;
                                     ga.TargetSid = res.ObjectIdentifier;
                                     ga.TargetType = res.ObjectType;
@@ -932,6 +937,11 @@ namespace SharpHoundCommonLib.Processors
                                 else
                                 {
                                     var res = _utils.ResolveAccountName(memberName, gpoDomain);
+                                    if (res == null)
+                                    {
+                                        _log.LogWarning("Failed to resolve member {memberName}", memberName);
+                                        continue;
+                                    }
                                     ga.Target = GroupActionTarget.LocalGroup;
                                     ga.TargetSid = res.ObjectIdentifier;
                                     ga.TargetType = res.ObjectType;

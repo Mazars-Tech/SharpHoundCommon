@@ -151,42 +151,26 @@ namespace SharpHoundCommonLib.Processors
         {
             var userProps = new UserProperties();
             var props = GetCommonProps(entry);
-
+            
+            var uacFlags = (UacFlags)0;
             var uac = entry.GetProperty(LDAPProperties.UserAccountControl);
-            bool enabled, trustedToAuth, sensitive, dontReqPreAuth, passwdNotReq, unconstrained, pwdNeverExpires;
             if (int.TryParse(uac, out var flag))
             {
-                var flags = (UacFlags)flag;
-                enabled = (flags & UacFlags.AccountDisable) == 0;
-                trustedToAuth = (flags & UacFlags.TrustedToAuthForDelegation) != 0;
-                sensitive = (flags & UacFlags.NotDelegated) != 0;
-                dontReqPreAuth = (flags & UacFlags.DontReqPreauth) != 0;
-                passwdNotReq = (flags & UacFlags.PasswordNotRequired) != 0;
-                unconstrained = (flags & UacFlags.TrustedForDelegation) != 0;
-                pwdNeverExpires = (flags & UacFlags.DontExpirePassword) != 0;
+                uacFlags = (UacFlags)flag;
             }
-            else
-            {
-                trustedToAuth = false;
-                enabled = true;
-                sensitive = false;
-                dontReqPreAuth = false;
-                passwdNotReq = false;
-                unconstrained = false;
-                pwdNeverExpires = false;
-            }
+            
+            props.Add("sensitive", uacFlags.HasFlag(UacFlags.NotDelegated));
+            props.Add("dontreqpreauth", uacFlags.HasFlag(UacFlags.DontReqPreauth));
+            props.Add("passwordnotreqd", uacFlags.HasFlag(UacFlags.PasswordNotRequired));
+            props.Add("unconstraineddelegation", uacFlags.HasFlag(UacFlags.TrustedForDelegation));
+            props.Add("pwdneverexpires", uacFlags.HasFlag(UacFlags.DontExpirePassword));
+            props.Add("enabled", !uacFlags.HasFlag(UacFlags.AccountDisable));
+            props.Add("trustedtoauth", uacFlags.HasFlag(UacFlags.TrustedToAuthForDelegation));
 
-            props.Add("sensitive", sensitive);
-            props.Add("dontreqpreauth", dontReqPreAuth);
-            props.Add("passwordnotreqd", passwdNotReq);
-            props.Add("unconstraineddelegation", unconstrained);
-            props.Add("pwdneverexpires", pwdNeverExpires);
-            props.Add("enabled", enabled);
-            props.Add("trustedtoauth", trustedToAuth);
             var domain = Helpers.DistinguishedNameToDomain(entry.DistinguishedName);
 
             var comps = new List<TypedPrincipal>();
-            if (trustedToAuth)
+            if (uacFlags.HasFlag(UacFlags.TrustedToAuthForDelegation))
             {
                 var delegates = entry.GetArrayProperty(LDAPProperties.AllowedToDelegateTo);
                 props.Add("allowedtodelegate", delegates);
@@ -279,19 +263,20 @@ namespace SharpHoundCommonLib.Processors
         {
             var compProps = new ComputerProperties();
             var props = GetCommonProps(entry);
-
+            
+            var flags = (UacFlags)0;
             var uac = entry.GetProperty(LDAPProperties.UserAccountControl);
             bool enabled, unconstrained, trustedToAuth, serverTrustAccount, trustedForDelegation, partialSecretsAccount, workstationTrustAccount;
             if (int.TryParse(uac, out var flag))
             {
-                var flags = (UacFlags)flag;
-                enabled = (flags & UacFlags.AccountDisable) == 0;
-                unconstrained = (flags & UacFlags.TrustedForDelegation) == UacFlags.TrustedForDelegation;
-                trustedToAuth = (flags & UacFlags.TrustedToAuthForDelegation) != 0;
-                serverTrustAccount = (flags & UacFlags.ServerTrustAccount) != 0;
-                trustedForDelegation = (flags & UacFlags.TrustedForDelegation) != 0;
-                partialSecretsAccount = (flags & UacFlags.PartialSecretsAccount) != 0;
-                workstationTrustAccount = (flags & UacFlags.WorkstationTrustAccount) != 0;
+                var uACFlags = (UacFlags)flag;
+                enabled = (uACFlags & UacFlags.AccountDisable) == 0;
+                unconstrained = (uACFlags & UacFlags.TrustedForDelegation) == UacFlags.TrustedForDelegation;
+                trustedToAuth = (uACFlags & UacFlags.TrustedToAuthForDelegation) != 0;
+                serverTrustAccount = (uACFlags & UacFlags.ServerTrustAccount) != 0;
+                trustedForDelegation = (uACFlags & UacFlags.TrustedForDelegation) != 0;
+                partialSecretsAccount = (uACFlags & UacFlags.PartialSecretsAccount) != 0;
+                workstationTrustAccount = (uACFlags & UacFlags.WorkstationTrustAccount) != 0;
             }
             else
             {
@@ -303,11 +288,16 @@ namespace SharpHoundCommonLib.Processors
                 partialSecretsAccount = false;
                 workstationTrustAccount = false;
             }
+            
+            props.Add("enabled", !flags.HasFlag(UacFlags.AccountDisable));
+            props.Add("unconstraineddelegation", flags.HasFlag(UacFlags.TrustedForDelegation));
+            props.Add("trustedtoauth", flags.HasFlag(UacFlags.TrustedToAuthForDelegation));
+            props.Add("isdc", flags.HasFlag(UacFlags.ServerTrustAccount));
 
             var domain = Helpers.DistinguishedNameToDomain(entry.DistinguishedName);
 
             var comps = new List<TypedPrincipal>();
-            if (trustedToAuth)
+            if (flags.HasFlag(UacFlags.TrustedToAuthForDelegation))
             {
                 var delegates = entry.GetArrayProperty(LDAPProperties.AllowedToDelegateTo);
                 props.Add("allowedtodelegate", delegates);
@@ -317,7 +307,7 @@ namespace SharpHoundCommonLib.Processors
                     var hname = d.Contains("/") ? d.Split('/')[1] : d;
                     hname = hname.Split(':')[0];
                     var resolvedHost = await _utils.ResolveHostToSid(hname, domain);
-                    if (resolvedHost != null && (resolvedHost.Contains(".") || resolvedHost.Contains("S-1")))
+                    if (resolvedHost != null && resolvedHost.Contains("S-1"))
                         comps.Add(new TypedPrincipal
                         {
                             ObjectIdentifier = resolvedHost,
@@ -356,6 +346,7 @@ namespace SharpHoundCommonLib.Processors
             props.Add("pwdlastset",
                 Helpers.ConvertFileTimeToUnixEpoch(entry.GetProperty(LDAPProperties.PasswordLastSet)));
             props.Add("serviceprincipalnames", entry.GetArrayProperty(LDAPProperties.ServicePrincipalNames));
+            props.Add("email", entry.GetProperty(LDAPProperties.Email));
             var os = entry.GetProperty(LDAPProperties.OperatingSystem);
             var sp = entry.GetProperty(LDAPProperties.ServicePack);
 
@@ -531,6 +522,16 @@ namespace SharpHoundCommonLib.Processors
                     nameFlags.HasFlag(PKICertificateNameFlag.ENROLLEE_SUPPLIES_SUBJECT));
                 props.Add("subjectaltrequireupn",
                     nameFlags.HasFlag(PKICertificateNameFlag.SUBJECT_ALT_REQUIRE_UPN));
+                props.Add("subjectaltrequiredns",
+                    nameFlags.HasFlag(PKICertificateNameFlag.SUBJECT_ALT_REQUIRE_DNS));
+                props.Add("subjectaltrequiredomaindns",
+                    nameFlags.HasFlag(PKICertificateNameFlag.SUBJECT_ALT_REQUIRE_DOMAIN_DNS));
+                props.Add("subjectaltrequireemail",
+                    nameFlags.HasFlag(PKICertificateNameFlag.SUBJECT_ALT_REQUIRE_EMAIL));
+                props.Add("subjectaltrequirespn",
+                    nameFlags.HasFlag(PKICertificateNameFlag.SUBJECT_ALT_REQUIRE_SPN));
+                props.Add("subjectrequireemail",
+                    nameFlags.HasFlag(PKICertificateNameFlag.SUBJECT_REQUIRE_EMAIL));
             }
 
             string[] ekus = entry.GetArrayProperty(LDAPProperties.ExtendedKeyUsage);
@@ -541,9 +542,15 @@ namespace SharpHoundCommonLib.Processors
             if (entry.GetIntProperty(LDAPProperties.NumSignaturesRequired, out var authorizedSignatures))
                 props.Add("authorizedsignatures", authorizedSignatures);
 
-            props.Add("applicationpolicies", entry.GetArrayProperty(LDAPProperties.ApplicationPolicies));
-            props.Add("issuancepolicies", entry.GetArrayProperty(LDAPProperties.IssuancePolicies));
+            bool hasUseLegacyProvider = false;
+            if (entry.GetIntProperty(LDAPProperties.PKIPrivateKeyFlag, out var privateKeyFlagsRaw))
+            {
+                var privateKeyFlags = (PKIPrivateKeyFlag)privateKeyFlagsRaw;
+                hasUseLegacyProvider = privateKeyFlags.HasFlag(PKIPrivateKeyFlag.USE_LEGACY_PROVIDER);
+            }
 
+            props.Add("applicationpolicies", ParseCertTemplateApplicationPolicies(entry.GetArrayProperty(LDAPProperties.ApplicationPolicies), schemaVersion, hasUseLegacyProvider));
+            props.Add("issuancepolicies", entry.GetArrayProperty(LDAPProperties.IssuancePolicies));
 
             // Construct effectiveekus
             string[] effectiveekus = schemaVersion == 1 & ekus.Length > 0 ? ekus : certificateapplicationpolicy;
@@ -849,6 +856,33 @@ namespace SharpHoundCommonLib.Processors
             }
 
             return props;
+        }
+
+        /// <summary>
+        ///     Parse CertTemplate attribute msPKI-RA-Application-Policies
+        /// </summary>
+        /// <param name="applicationPolicies"></param>
+        /// <param name="schemaVersion"></param>
+        /// <param name="hasUseLegacyProvider"></param>
+        private static string[] ParseCertTemplateApplicationPolicies(string[] applicationPolicies, int schemaVersion, bool hasUseLegacyProvider)
+        {
+            if (applicationPolicies == null
+                || applicationPolicies.Length == 0
+                || schemaVersion == 1
+                || schemaVersion == 2
+                || (schemaVersion == 4 && hasUseLegacyProvider)) {
+                return applicationPolicies;
+            } else {
+                // Format: "Name`Type`Value`Name`Type`Value`..."
+                // (https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-crtd/c55ec697-be3f-4117-8316-8895e4399237)
+                // Return the Value of Name = "msPKI-RA-Application-Policies" entries
+                string[] entries = applicationPolicies[0].Split('`');
+                return Enumerable.Range(0, entries.Length / 3)
+                    .Select(i => entries.Skip(i * 3).Take(3).ToArray())
+                    .Where(parts => parts.Length == 3 && parts[0].Equals(LDAPProperties.ApplicationPolicies, StringComparison.OrdinalIgnoreCase))
+                    .Select(parts => parts[2])
+                    .ToArray();
+            }
         }
 
         /// <summary>
