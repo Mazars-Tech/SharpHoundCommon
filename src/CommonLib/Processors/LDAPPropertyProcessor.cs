@@ -289,9 +289,9 @@ namespace SharpHoundCommonLib.Processors
                 workstationTrustAccount = false;
             }
             
-            props.Add("enabled", !flags.HasFlag(UacFlags.AccountDisable));
-            props.Add("unconstraineddelegation", flags.HasFlag(UacFlags.TrustedForDelegation));
-            props.Add("trustedtoauth", flags.HasFlag(UacFlags.TrustedToAuthForDelegation));
+            //props.Add("enabled", !flags.HasFlag(UacFlags.AccountDisable));
+            //props.Add("unconstraineddelegation", flags.HasFlag(UacFlags.TrustedForDelegation));
+            //props.Add("trustedtoauth", flags.HasFlag(UacFlags.TrustedToAuthForDelegation));
             props.Add("isdc", flags.HasFlag(UacFlags.ServerTrustAccount));
 
             var domain = Helpers.DistinguishedNameToDomain(entry.DistinguishedName);
