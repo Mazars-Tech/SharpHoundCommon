@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "SharpHoundCommonLib": {
+      "commandName": "Project",
+      "commandLineArgs": "-c All,GPOLocalGroup"
+    }
+  }
+}
